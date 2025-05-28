@@ -7,28 +7,34 @@ import random
 
 class GridWorld3x3:
     def __init__(self):
-        self.reset()
+        pass
 
     def reset(self):
         self.agent_pos = [1, 1]
-        # Only cardinal neighbors of center
         cardinal_offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
         self.goal_pos = random.choice([(self.agent_pos[0] + dx, self.agent_pos[1] + dy) for dx, dy in cardinal_offsets])
         return self._get_obs()
 
-    def get_correct_action(self):
-        ax, ay = self.agent_pos
-        gx, gy = self.goal_pos
-        if gx < ax: return 0  # up
-        if gx > ax: return 1  # down
-        if gy < ay: return 2  # left
-        if gy > ay: return 3  # right
+    def step(self, action):
+        # Perform the action
+        if action == 0:  # up
+            self.agent_pos[0] = max(0, self.agent_pos[0] - 1)
+        elif action == 1:  # down
+            self.agent_pos[0] = min(2, self.agent_pos[0] + 1)
+        elif action == 2:  # left
+            self.agent_pos[1] = max(0, self.agent_pos[1] - 1)
+        elif action == 3:  # right
+            self.agent_pos[1] = min(2, self.agent_pos[1] + 1)
+        # Compute reward
+        reward = 1.0 if tuple(self.agent_pos) == self.goal_pos else 0.0
+        # Return new observation and reward
+        return self._get_obs(), reward
 
     def _get_obs(self):
         agent_map = np.zeros((3, 3), dtype=np.float32)
-        goal_map = np.zeros((3, 3), dtype=np.float32)
+        goal_map  = np.zeros((3, 3), dtype=np.float32)
         agent_map[self.agent_pos[0], self.agent_pos[1]] = 1.0
-        goal_map[self.goal_pos[0], self.goal_pos[1]] = 1.0
+        goal_map[self.goal_pos[0], self.goal_pos[1]]   = 1.0
         return np.stack([agent_map, goal_map], axis=0)
 
 class SpatialRelationModel(nn.Module):
@@ -63,23 +69,23 @@ def train():
     env = GridWorld3x3()
     model = SpatialRelationModel()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
-    correct_count = 0
-    for ep in range(1000):
+    total_reward = 0.0
+    print_interval = 100
+    for ep in range(1, 1001):
         obs = env.reset()
-        correct_action = env.get_correct_action()
-        if correct_action is None:
-            continue  # skip accidental goal-on-agent
         logits = model(obs)
-        loss = F.cross_entropy(logits.unsqueeze(0), torch.tensor([correct_action]))
+        dist = torch.distributions.Categorical(logits=logits)
+        action = dist.sample().item()
+        next_obs, reward = env.step(action)
+        total_reward += reward
+        loss = -dist.log_prob(torch.tensor(action)) * reward
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        pred_action = torch.argmax(logits).item()
-        correct_count += int(pred_action == correct_action)
-        if ep % 10 == 0 and ep > 0:
-            acc = correct_count / 10
-            print(f"Episode {ep}, last 10 accuracy: {acc:.2f}")
-            correct_count = 0
+        if ep % print_interval == 0:
+            avg_reward = total_reward / print_interval
+            print(f"Episode {ep}, average reward: {avg_reward:.2f}")
+            total_reward = 0.0
 
 if __name__ == "__main__":
     train()
