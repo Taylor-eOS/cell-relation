@@ -11,8 +11,9 @@ class GridWorld3x3:
 
     def reset(self):
         self.agent_pos = [1, 1]
-        cells = [(i, j) for i in range(3) for j in range(3) if (i, j) != tuple(self.agent_pos)]
-        self.goal_pos = random.choice(cells)
+        # Only cardinal neighbors of center
+        cardinal_offsets = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+        self.goal_pos = random.choice([(self.agent_pos[0] + dx, self.agent_pos[1] + dy) for dx, dy in cardinal_offsets])
         return self._get_obs()
 
     def get_correct_action(self):
@@ -22,7 +23,6 @@ class GridWorld3x3:
         if gx > ax: return 1  # down
         if gy < ay: return 2  # left
         if gy > ay: return 3  # right
-        return None  # goal on agent
 
     def _get_obs(self):
         agent_map = np.zeros((3, 3), dtype=np.float32)
@@ -64,7 +64,6 @@ def train():
     model = SpatialRelationModel()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
     correct_count = 0
-
     for ep in range(1000):
         obs = env.reset()
         correct_action = env.get_correct_action()
@@ -77,11 +76,11 @@ def train():
         optimizer.step()
         pred_action = torch.argmax(logits).item()
         correct_count += int(pred_action == correct_action)
-
-        if ep % 20 == 0 and ep > 0:
-            acc = correct_count / 20
-            print(f"Episode {ep}, last 20 accuracy: {acc:.2f}")
+        if ep % 10 == 0 and ep > 0:
+            acc = correct_count / 10
+            print(f"Episode {ep}, last 10 accuracy: {acc:.2f}")
             correct_count = 0
 
-train()
+if __name__ == "__main__":
+    train()
 
