@@ -20,7 +20,17 @@ class Encoder(nn.Module):
         rj = coords[None, :, 0]
         ci = coords[:, None, 1]
         cj = coords[None, :, 1]
-        self.rel = torch.stack([ri - rj, ci - cj], dim=-1)
+        rel_full = torch.stack([ri - rj, ci - cj], dim=-1)
+        pairs = []
+        for i in range(num_cells):
+            for j in range(i, num_cells):
+                pairs.append((i, j))
+        pair_i = torch.tensor([p[0] for p in pairs], dtype=torch.long)
+        pair_j = torch.tensor([p[1] for p in pairs], dtype=torch.long)
+        self.register_buffer('pair_i', pair_i)
+        self.register_buffer('pair_j', pair_j)
+        rel = rel_full[pair_i, pair_j]
+        self.register_buffer('rel', rel)
         self.num_cells = num_cells
 
     def forward(self, obs):
@@ -29,17 +39,27 @@ class Encoder(nn.Module):
         x = F.relu(self.conv2(x))
         B, C, h, w = x.shape
         cell_emb = x.view(B, C, h * w).permute(0, 2, 1)
-        num_cells = self.num_cells
-        ce_i = cell_emb[:, :, None, :].expand(-1, -1, num_cells, -1)
-        ce_j = cell_emb[:, None, :, :].expand(-1, num_cells, -1, -1)
-        rel = self.rel.to(x.device)[None, :, :, :]
+        M = self.rel.shape[0]
+        ce_i = cell_emb[:, self.pair_i, :]
+        ce_j = cell_emb[:, self.pair_j, :]
+        rel = self.rel.unsqueeze(0).expand(B, -1, -1)
+        flat_obs = torch.from_numpy(obs).view(2, -1)
+        obs_i = flat_obs[:, self.pair_i]
+        obs_j = flat_obs[:, self.pair_j]
+        empty_i = (obs_i == 0).all(dim=0)
+        empty_j = (obs_j == 0).all(dim=0)
+        keep_mask = ~(empty_i & empty_j)
+        ce_i = ce_i[:, keep_mask, :]
+        ce_j = ce_j[:, keep_mask, :]
+        rel = rel[:, keep_mask, :]
         tokens = torch.cat([ce_i, ce_j, rel], dim=-1)
-        seq = tokens.view(B, num_cells * num_cells, 2 * C + 2)
-        t_out = self.transformer(seq)
+        t_out = self.transformer(tokens)
         flat = obs[0].flatten()
         agent_idx = int(flat.argmax())
-        start = agent_idx * num_cells
-        agent_tokens = t_out[0, start : start + num_cells]
+        mask_i = self.pair_i[keep_mask]
+        mask_j = self.pair_j[keep_mask]
+        mask = (mask_i == agent_idx) | (mask_j == agent_idx)
+        agent_tokens = t_out[0, mask]
         hvec = agent_tokens.mean(dim=0)
         return hvec
 

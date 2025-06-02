@@ -11,8 +11,9 @@ from model import Encoder
 class GridWorld:
     def __init__(self):
         self.size = settings.grid_size
-        self.agent_pos = [self.size // 2] * 2
-        self.goal_pos = [random.randint(0, self.size - 1), random.randint(0, self.size - 1)]
+        self.center = [self.size // 2, self.size // 2]
+        self.agent_pos = list(self.center)
+        self.goal_pos = list(self.center)
 
     def reset(self):
         self.agent_pos = [random.randint(0, self.size - 1), random.randint(0, self.size - 1)]
@@ -20,6 +21,28 @@ class GridWorld:
         while self.goal_pos == self.agent_pos:
             self.goal_pos = [random.randint(0, self.size - 1), random.randint(0, self.size - 1)]
         return self._get_obs()
+
+    def sample_stage(self, stage):
+        self.agent_pos = list(self.center)
+        x, y = self.center
+        if stage == 1:
+            neighbors = []
+            if x > 0: neighbors.append([x - 1, y])
+            if x < self.size - 1: neighbors.append([x + 1, y])
+            if y > 0: neighbors.append([x, y - 1])
+            if y < self.size - 1: neighbors.append([x, y + 1])
+            self.goal_pos = random.choice(neighbors)
+        else:
+            directions = []
+            if x - stage >= 0: directions.append([x - stage, y])
+            if x + stage < self.size: directions.append([x + stage, y])
+            if y - stage >= 0: directions.append([x, y - stage])
+            if y + stage < self.size: directions.append([x, y + stage])
+            self.goal_pos = random.choice(directions)
+        return self._get_obs()
+
+    def sample(self):
+        return self.sample_stage(stage=1)
 
     def step(self, action):
         if action == 0:
@@ -40,14 +63,6 @@ class GridWorld:
         agent_map[self.agent_pos[0], self.agent_pos[1]] = 1.0
         goal_map[self.goal_pos[0], self.goal_pos[1]] = 1.0
         return np.stack([agent_map, goal_map], axis=0)
-
-    def sample(self):
-        corners = [[0, 0], [0, self.size - 1], [self.size - 1, 0], [self.size - 1, self.size - 1]]
-        self.goal_pos = random.choice(corners)
-        self.agent_pos = [random.randint(0, self.size - 1), random.randint(0, self.size - 1)]
-        while self.agent_pos == self.goal_pos:
-            self.agent_pos = [random.randint(0, self.size - 1), random.randint(0, self.size - 1)]
-        return self._get_obs()
 
 class WorldModel(nn.Module):
     def __init__(self, encoder):
@@ -168,6 +183,56 @@ def run_episode(env, policy):
             reached_goal = True
             break
     return trajectory, reached_goal
+
+def run_episode_limit(env, policy, max_steps):
+    obs = env._get_obs()
+    for _ in range(max_steps):
+        logits = policy(obs)
+        probs = F.softmax(logits, dim=-1)
+        dist = torch.distributions.Categorical(probs)
+        action = dist.sample().item()
+        next_obs, done = env.step(action)
+        obs = next_obs
+        if done:
+            return True
+    return False
+
+def train_policy_curriculum():
+    env = GridWorld()
+    encoder = Encoder()
+    pretrained = torch.load("world_model.pt")
+    encoder_state = {k.replace("encoder.", ""): v for k, v in pretrained.items() if k.startswith("encoder.")}
+    encoder.load_state_dict(encoder_state)
+    policy = PolicyModel(encoder)
+    optimizer = optim.Adam(policy.parameters(), lr=1e-4)
+    threshold = 0.9
+    interval = 100
+    for stage in [1, 2, 3]:
+        success_count = 0
+        for ep in range(1, settings.training_steps + 1):
+            env.sample_stage(stage)
+            reached = run_episode_limit(env, policy, stage)
+            success_count += int(reached)
+            loss = torch.tensor(0.0)
+            if reached:
+                obs = env._get_obs()
+                logits = policy(obs)
+                probs = F.softmax(logits, dim=-1)
+                dist = torch.distributions.Categorical(probs)
+                action = dist.sample().item()
+                logp = dist.log_prob(torch.tensor(action))
+                loss = -logp * 1.0
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            if ep % interval == 0:
+                success_rate = success_count / interval
+                print(f"Stage {stage}, Episode {ep}, success rate: {success_rate:.2f}")
+                if success_rate >= threshold:
+                    break
+                success_count = 0
+        print(f"Moving to stage {stage + 1}")
+    torch.save(policy.state_dict(), "policy_curriculum.pt")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
