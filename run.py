@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import numpy as np
 import settings
 from gridworld import GridWorld
-from model import Encoder, PolicyModel, sample_action, assign_rewards
+from model import Encoder, PolicyModel
 
 def run_episode(env, policy, max_steps):
     obs = env._get_obs()
@@ -14,64 +14,145 @@ def run_episode(env, policy, max_steps):
     reached_goal = False
     for _ in range(max_steps):
         logits = policy(obs)
-        action,logp = sample_action(logits)
-        next_obs,done = env.step(action)
+        action, logp = sample_action(logits)
+        next_obs, done = env.step(action)
         prev_state = obs[0].flatten().argmax().item()
         next_state = next_obs[0].flatten().argmax().item()
-        trajectory.append((prev_state,action,next_state,logp))
+        trajectory.append((prev_state, action, next_state, logp))
         obs = next_obs
         if done:
             reached_goal = True
             break
-    return trajectory,reached_goal
+    return trajectory, reached_goal
+
+def train_stage(env, policy, optimizer, stage):
+    cumulative_offsets = []
+    for s in range(1, stage+1):
+        if s in GridWorld.STAGE_OFFSETS:
+            cumulative_offsets.extend(GridWorld.STAGE_OFFSETS[s])
+    max_steps = max(abs(dx)+abs(dy) for dx, dy in cumulative_offsets)
+    success_count = 0
+    step_sum = 0
+    for ep in range(1, settings.training_steps+1):
+        env.sample_stage(stage)
+        trajectory, reached_goal = run_episode(env, policy, max_steps)
+        step_sum += len(trajectory)
+        if reached_goal:
+            success_count += 1
+            rewards = assign_rewards(trajectory)
+        else:
+            rewards = [0.0]*len(trajectory)
+        loss = torch.tensor(0.0)
+        for (_, _, _, logp), r in zip(trajectory, rewards):
+            loss = loss-logp*r
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if ep%settings.step_interval == 0:
+            success_rate = success_count/settings.step_interval
+            avg_steps = step_sum/settings.step_interval
+            print(f"Stage {stage}, Episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
+            if success_rate >= settings.threshold:
+                break
+            success_count = 0
+            step_sum = 0
+    if stage == max(GridWorld.STAGE_OFFSETS.keys()):
+        print("Completed stage {stage}, switching to free roam")
+    else:
+        print(f"Completed stage {stage}, moving to stage {stage+1}")
 
 def train_policy():
     env = GridWorld()
     encoder = Encoder()
     pretrained = torch.load("world_model.pt")
-    encoder_state = {k.replace("encoder.",""): v for k, v in pretrained.items() if k.startswith("encoder.")}
+    encoder_state = {k.replace("encoder.", ""):v for k, v in pretrained.items() if k.startswith("encoder.")}
     encoder.load_state_dict(encoder_state)
     policy = PolicyModel(encoder)
-    optimizer = torch.optim.Adam(policy.parameters(), lr=1e-4)
-    interval = settings.step_interval
+    optimizer = torch.optim.Adam(policy.parameters(), lr = 1e-4)
     stages = sorted(GridWorld.STAGE_OFFSETS.keys())
     for stage in stages:
         cumulative_offsets = []
-        for s in range(1, stage + 1):
+        for s in range(1, stage+1):
             if s in GridWorld.STAGE_OFFSETS:
                 cumulative_offsets.extend(GridWorld.STAGE_OFFSETS[s])
-        max_steps = max(abs(dx) + abs(dy) for dx, dy in cumulative_offsets)
-        success_count = 0
-        step_sum = 0
-        for ep in range(1, settings.training_steps + 1):
+        max_steps_stage = max(abs(dx)+abs(dy) for dx, dy in cumulative_offsets)
+        success_count_stage = 0
+        step_sum_stage = 0
+        for ep in range(1, settings.training_steps+1):
             env.sample_stage(stage)
-            trajectory, reached_goal = run_episode(env, policy, max_steps)
-            step_sum += len(trajectory)
+            trajectory, reached_goal = run_episode(env, policy, max_steps_stage)
+            step_sum_stage += len(trajectory)
             if reached_goal:
-                success_count += 1
+                success_count_stage += 1
                 rewards = assign_rewards(trajectory)
             else:
-                rewards = [0.0] * len(trajectory)
+                rewards = [0.0]*len(trajectory)
             loss = torch.tensor(0.0)
             for (_, _, _, logp), r in zip(trajectory, rewards):
-                loss = loss - logp * r
+                loss = loss-logp*r
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if ep % interval == 0:
-                success_rate = success_count / interval
-                avg_steps = step_sum / interval
+            if ep%settings.step_interval == 0:
+                success_rate = success_count_stage/settings.step_interval
+                avg_steps = step_sum_stage/settings.step_interval
                 print(f"Stage {stage}, Episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
                 if success_rate >= settings.threshold:
                     break
-                success_count = 0
-                step_sum = 0
-        print(f"Completed stage {stage}, moving to stage {stage + 1}")
+                success_count_stage = 0
+                step_sum_stage = 0
+        print(f"Completed stage {stage}, moving to stage {stage+1}")
+    max_steps_free = 8
+    success_count = 0
+    step_sum = 0
+    for ep in range(1, settings.training_steps+1):
+        obs = env.reset()
+        trajectory, reached_goal = run_episode(env, policy, max_steps_free)
+        step_sum += len(trajectory)
+        if reached_goal:
+            success_count += 1
+            rewards = assign_rewards(trajectory)
+        else:
+            rewards = [0.0]*len(trajectory)
+        loss = torch.tensor(0.0)
+        for (_, _, _, logp), r in zip(trajectory, rewards):
+            loss = loss-logp*r
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        if ep%settings.step_interval == 0:
+            success_rate = success_count/settings.step_interval
+            avg_steps = step_sum/settings.step_interval
+            print(f"Free roam Episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
+            success_count = 0
+            step_sum = 0
     torch.save(policy.state_dict(), "policy_model.pt")
+
+def sample_action(logits):
+    probs = F.softmax(logits, dim = -1)
+    dist = torch.distributions.Categorical(probs)
+    action_tensor = dist.sample()
+    return action_tensor.item(), dist.log_prob(action_tensor)
+
+def assign_rewards(trajectory):
+    rewards = [0.0] * len(trajectory)
+    if not trajectory:
+        return rewards
+    goal_idx = trajectory[-1][2]
+    current = goal_idx
+    for i in range(len(trajectory) - 1, -1, -1):
+        prev_s, _, next_s, _ = trajectory[i]
+        if next_s == current:
+            r_prev = divmod(prev_s, settings.grid_size)
+            r_cur = divmod(current, settings.grid_size)
+            if abs(r_prev[0] - r_cur[0]) + abs(r_prev[1] - r_cur[1]) == 1:
+                rewards[i] = 1.0
+                current = prev_s
+    return rewards
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrain",action="store_true")
+    parser.add_argument("--pretrain", action = "store_true")
     args = parser.parse_args()
     if args.pretrain:
         from pretrain import train_world
