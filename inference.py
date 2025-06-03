@@ -1,6 +1,7 @@
 import pygame, time, torch
 import numpy as np
-from model import Encoder, PolicyModel, sample_action
+from model import Encoder, PolicyModel
+from run import sample_action
 from gridworld import GridWorld
 import settings
 
@@ -16,6 +17,8 @@ def draw_grid(env):
         for j in range(grid_size):
             rect = pygame.Rect(j * cell_size, i * cell_size, cell_size, cell_size)
             pygame.draw.rect(screen, (200, 200, 200), rect, 1)
+    for wx, wy in env.wall_positions:
+        pygame.draw.rect(screen, (100, 100, 100), (wy * cell_size, wx * cell_size, cell_size, cell_size))
     gx, gy = env.goal_pos
     ax, ay = env.agent_pos
     pygame.draw.rect(screen, (255, 0, 0), (gy * cell_size, gx * cell_size, cell_size, cell_size))
@@ -47,18 +50,6 @@ def inference_loop():
                     running = False
             time.sleep(0.4)
         time.sleep(1)
-
-def draw_grid(env):
-    screen.fill((255, 255, 255))
-    for i in range(grid_size):
-        for j in range(grid_size):
-            rect = pygame.Rect(j * cell_size, i * cell_size, cell_size, cell_size)
-            pygame.draw.rect(screen, (200, 200, 200), rect, 1)
-    gx, gy = env.goal_pos
-    ax, ay = env.agent_pos
-    pygame.draw.rect(screen, (160, 160, 160), (gy * cell_size, gx * cell_size, cell_size, cell_size))
-    pygame.draw.rect(screen, (0, 0, 0), (ay * cell_size, ax * cell_size, cell_size, cell_size))
-    pygame.display.flip()
 
 if __name__ == "__main__":
     inference_loop()

@@ -56,10 +56,7 @@ def train_stage(env, policy, optimizer, stage):
                 break
             success_count = 0
             step_sum = 0
-    if stage == max(GridWorld.STAGE_OFFSETS.keys()):
-        print("Completed stage {stage}, switching to free roam")
-    else:
-        print(f"Completed stage {stage}, moving to stage {stage+1}")
+    print(f"Completed stage {stage}, moving to stage {stage+1}")
 
 def train_policy():
     env = GridWorld()
@@ -123,7 +120,7 @@ def train_policy():
         if ep%settings.step_interval == 0:
             success_rate = success_count/settings.step_interval
             avg_steps = step_sum/settings.step_interval
-            print(f"Free roam Episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
+            print(f"Free roam episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
             success_count = 0
             step_sum = 0
     torch.save(policy.state_dict(), "policy_model.pt")
