@@ -26,39 +26,6 @@ def run_episode(env, policy, max_steps):
             break
     return trajectory, reached_goal
 
-def train_stage(env, policy, optimizer, stage):
-    cumulative_offsets = []
-    for s in range(1, stage+1):
-        if s in GridWorld.STAGE_OFFSETS:
-            cumulative_offsets.extend(GridWorld.STAGE_OFFSETS[s])
-    max_steps = max(abs(dx)+abs(dy) for dx, dy in cumulative_offsets)
-    success_count = 0
-    step_sum = 0
-    for ep in range(1, settings.training_steps+1):
-        env.sample_stage(stage)
-        trajectory, reached_goal = run_episode(env, policy, max_steps)
-        step_sum += len(trajectory)
-        if reached_goal:
-            success_count += 1
-            rewards = assign_rewards(trajectory)
-        else:
-            rewards = [0.0]*len(trajectory)
-        loss = torch.tensor(0.0)
-        for (_, _, _, logp), r in zip(trajectory, rewards):
-            loss = loss-logp*r
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        if ep%settings.step_interval == 0:
-            success_rate = success_count/settings.step_interval
-            avg_steps = step_sum/settings.step_interval
-            print(f"Stage {stage}, Episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
-            if success_rate >= settings.threshold:
-                break
-            success_count = 0
-            step_sum = 0
-    print(f"Completed stage {stage}, moving to stage {stage+1}")
-
 def train_policy():
     env = GridWorld()
     encoder = Encoder()
