@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import settings
+from pretrain import train_world
 from gridworld import GridWorld
 from model import Encoder, PolicyModel
 
@@ -132,27 +133,13 @@ def sample_action(logits):
     return action_tensor.item(), dist.log_prob(action_tensor)
 
 def assign_rewards(trajectory):
-    rewards = [0.0] * len(trajectory)
-    if not trajectory:
-        return rewards
-    goal_idx = trajectory[-1][2]
-    current = goal_idx
-    for i in range(len(trajectory) - 1, -1, -1):
-        prev_s, _, next_s, _ = trajectory[i]
-        if next_s == current:
-            r_prev = divmod(prev_s, settings.grid_size)
-            r_cur = divmod(current, settings.grid_size)
-            if abs(r_prev[0] - r_cur[0]) + abs(r_prev[1] - r_cur[1]) == 1:
-                rewards[i] = 1.0
-                current = prev_s
-    return rewards
+    return [1.0] * len(trajectory) if trajectory else []
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--pretrain", action = "store_true")
     args = parser.parse_args()
     if args.pretrain:
-        from pretrain import train_world
         train_world()
     else:
         train_policy()

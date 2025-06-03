@@ -50,7 +50,7 @@ class Encoder(nn.Module):
         is_empty_j = (obs_j == 0).all(dim=0)
         is_wall_i = (obs_i[2] == 1.0)
         is_wall_j = (obs_j[2] == 1.0)
-        pad_mask = (is_empty_i & is_empty_j) | (is_wall_i & is_empty_j) | (is_empty_i & is_wall_j)
+        pad_mask = (is_empty_i & is_empty_j) | (is_wall_i & is_empty_j) | (is_empty_i & is_wall_j) | (is_wall_i & is_wall_j)
         pad_mask_batch = pad_mask.unsqueeze(0).expand(B, -1)
         tokens = torch.cat([ce_i, ce_j, rel], dim=-1)
         t_out = self.transformer(tokens, src_key_padding_mask=pad_mask_batch)
