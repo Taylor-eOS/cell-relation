@@ -6,7 +6,7 @@ from gridworld import GridWorld
 import settings
 
 pygame.init()
-cell_size = 40
+cell_size = 50
 grid_size = settings.grid_size
 screen = pygame.display.set_mode((cell_size * grid_size, cell_size * grid_size))
 clock = pygame.time.Clock()
@@ -43,13 +43,12 @@ def inference_loop():
         while not done:
             logits = policy(obs)
             action, _ = sample_action(logits)
-            obs, done = env.step(action)
+            obs, done, stepped_on_wall = env.step(action)
             draw_grid(env)
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-            time.sleep(0.4)
-        time.sleep(1)
+            time.sleep(0.35)
 
 if __name__ == "__main__":
     inference_loop()
