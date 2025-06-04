@@ -8,18 +8,18 @@ from gridworld import GridWorld
 import settings
 
 class WorldModel(nn.Module):
-    def __init__(self,encoder):
+    def __init__(self, encoder):
         super().__init__()
         self.encoder = encoder
-        self.action_embed = nn.Linear(4,8)
+        self.action_embed = nn.Linear(4, 8)
         num_cells = settings.grid_size * settings.grid_size
-        self.head = nn.Linear(34 + 8,num_cells)
+        self.head = nn.Linear(45, num_cells)
 
-    def forward(self,obs,action):
+    def forward(self, obs, action):
         hvec = self.encoder(obs)
-        a_onehot = F.one_hot(torch.tensor(action),num_classes=4).float()
+        a_onehot = F.one_hot(torch.tensor(action), num_classes=4).float()
         a_emb = F.relu(self.action_embed(a_onehot))
-        logits = self.head(torch.cat([hvec,a_emb],dim=-1).unsqueeze(0))
+        logits = self.head(torch.cat([hvec, a_emb], dim=-1).unsqueeze(0))
         return logits
 
 def train_world():
@@ -32,7 +32,7 @@ def train_world():
     for step in range(1,settings.pretraining_steps + 1):
         obs = env._get_obs()
         action = random.randrange(4)
-        next_obs,_ = env.step(action)
+        next_obs, _, _ = env.step(action)
         true_pos = int(next_obs[0].flatten().argmax())
         logits = model(obs,action)
         loss = F.cross_entropy(logits,torch.tensor([true_pos]))
