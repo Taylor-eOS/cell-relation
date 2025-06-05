@@ -13,7 +13,7 @@ class WorldModel(nn.Module):
         self.encoder = encoder
         self.action_embed = nn.Linear(4, 8)
         num_cells = settings.grid_size * settings.grid_size
-        self.head = nn.Linear(52, num_cells)
+        self.head = nn.Linear(44 + 8, num_cells)
 
     def forward(self, obs, action):
         hvec = self.encoder(obs)
@@ -26,7 +26,7 @@ def train_world():
     env = GridWorld()
     encoder = Encoder()
     model = WorldModel(encoder)
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=settings.world_lr)
     total_correct = 0
     interval = settings.step_interval
     for step in range(1, settings.pretraining_steps + 1):
@@ -43,7 +43,7 @@ def train_world():
         total_correct += int(pred_pos == true_pos)
         if step % interval == 0:
             acc = total_correct / interval
-            print(f"Step {step}, predictive accuracy: {acc:.2f}")
+            print(f"Step {step:5}, predictive accuracy: {acc:.2f}")
             total_correct = 0
     torch.save(model.state_dict(), "world_model.pt")
 

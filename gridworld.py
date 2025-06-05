@@ -3,8 +3,6 @@ import numpy as np
 import settings
 
 class GridWorld:
-    STAGE_OFFSETS = settings.stage_offsets
-
     def __init__(self):
         self.size = settings.grid_size
         self.center = [self.size//2, self.size//2]
@@ -21,42 +19,6 @@ class GridWorld:
         for wx, wy in self.wall_positions:
             wall_map[wx, wy] = 1.0
         return np.stack([agent_map, goal_map, wall_map], axis = 0)
-
-    def reset(self):
-        self.wall_positions = self._generate_wall(avoid_positions = [])
-        free_cells = set((i, j) for i in range(self.size) for j in range(self.size))
-        free_cells -= set(map(tuple, self.wall_positions))
-        free_cells = list(free_cells)
-        self.agent_pos = list(random.choice(free_cells))
-        free_cells.remove(tuple(self.agent_pos))
-        self.goal_pos = list(random.choice(free_cells))
-        return self._get_obs()
-
-    def sample_stage(self, stage):
-        self.wall_positions = self._generate_wall(avoid_positions = [tuple(self.center)])
-        self.agent_pos = list(self.center)
-        x, y = self.center
-        all_offsets = []
-        for s in range(1, stage+1):
-            if s in GridWorld.STAGE_OFFSETS:
-                all_offsets.extend(GridWorld.STAGE_OFFSETS[s])
-        valid_positions = []
-        for dx, dy in all_offsets:
-            nx, ny = x+dx, y+dy
-            if (0 <= nx<self.size and 0 <= ny<self.size and (nx, ny) not in self.wall_positions):
-                valid_positions.append((nx, ny))
-        if valid_positions:
-            self.goal_pos = list(random.choice(valid_positions))
-        else:
-            free_cells = set((i, j) for i in range(self.size) for j in range(self.size))
-            free_cells -= set(map(tuple, self.wall_positions))
-            free_cells -= {tuple(self.center)}
-            free_cells = list(free_cells)
-            if free_cells:
-                self.goal_pos = list(random.choice(free_cells))
-            else:
-                self.goal_pos = list(self.center)
-        return self._get_obs()
 
     def step(self, action):
         x, y = self.agent_pos
@@ -77,27 +39,94 @@ class GridWorld:
         done = (self.agent_pos == self.goal_pos)
         return obs, done, stepped_on_wall
 
-    def _generate_wall(self, avoid_positions):
-        walls = []
-        for x in range(self.size):
-            for y in range(self.size-2):
-                wall = [(x, y), (x, y+1), (x, y+2)]
-                walls.append(wall)
-        for y in range(self.size):
-            for x in range(self.size-2):
-                wall = [(x, y), (x+1, y), (x+2, y)]
-                walls.append(wall)
-        avoid_set = set(avoid_positions)
-        valid_walls = [wall for wall in walls if not set(wall)&avoid_set]
-        if valid_walls:
-            return random.choice(valid_walls)
+    def sample_stage(self, stage):
+        free_cells = [(i, j) for i in range(self.size) for j in range(self.size)]
+        self.agent_pos = list(random.choice(free_cells))
+        free_cells.remove(tuple(self.agent_pos))
+        all_offsets = []
+        max_stage = max(settings.stage_offsets.keys())
+        actual_stage = min(stage, max_stage)
+        for s in range(1, actual_stage + 1):
+            all_offsets.extend(settings.stage_offsets[s])
+        candidates = []
+        ax, ay = self.agent_pos
+        for dx, dy in all_offsets:
+            gx = ax + dx
+            gy = ay + dy
+            if 0 <= gx < self.size and 0 <= gy < self.size:
+                candidates.append((gx, gy))
+        candidates = [c for c in set(candidates) if c != tuple(self.agent_pos)]
+        if candidates:
+            self.goal_pos = list(random.choice(candidates))
         else:
-            min_overlap = float('inf')
-            best_wall = walls[0]
-            for wall in walls:
-                overlap = len(set(wall)&avoid_set)
-                if overlap<min_overlap:
-                    min_overlap = overlap
-                    best_wall = wall
-            return best_wall
+            self.goal_pos = list(random.choice(free_cells))
+        self.wall_positions = self.generate_wall(avoid_positions=[], agent_pos=self.agent_pos, goal_pos=self.goal_pos, require_blocking=False)
+        return self._get_obs()
+
+    def reset(self):
+        free_cells = [(i, j) for i in range(self.size) for j in range(self.size)]
+        self.agent_pos = list(random.choice(free_cells))
+        free_cells.remove(tuple(self.agent_pos))
+        self.goal_pos = list(random.choice(free_cells))
+        free_cells.remove(tuple(self.goal_pos))
+        self.wall_positions = self.generate_wall(
+            avoid_positions=[],
+            agent_pos=self.agent_pos,
+            goal_pos=self.goal_pos,
+            require_blocking=True)
+        return self._get_obs()
+
+    def generate_wall(self, avoid_positions, agent_pos=None, goal_pos=None, require_blocking=True):
+        size = self.size
+        all_walls = []
+        for x in range(size):
+            for y in range(size - 2):
+                all_walls.append([(x, y), (x, y + 1), (x, y + 2)])
+        for y in range(size):
+            for x in range(size - 2):
+                all_walls.append([(x, y), (x + 1, y), (x + 2, y)])
+        avoid_set = set(avoid_positions)
+        if agent_pos is not None:
+            avoid_set.add(tuple(agent_pos))
+        if goal_pos is not None:
+            avoid_set.add(tuple(goal_pos))
+        valid_walls = [w for w in all_walls if not (set(w) & avoid_set)]
+        if agent_pos is not None and goal_pos is not None:
+            blocking_walls = [w for w in valid_walls if self.is_blocking(agent_pos, goal_pos, w)]
+            if require_blocking:
+                if blocking_walls:
+                    return random.choice(blocking_walls)
+                if valid_walls:
+                    return random.choice(valid_walls)
+            else:
+                if valid_walls:
+                    return random.choice(valid_walls)
+        min_overlap = float('inf')
+        best_wall = all_walls[0]
+        for w in all_walls:
+            overlap = len(set(w) & avoid_set)
+            if overlap < min_overlap:
+                min_overlap = overlap
+                best_wall = w
+        return best_wall
+
+    def is_blocking(self, agent_pos, goal_pos, wall):
+        ax, ay = agent_pos
+        gx, gy = goal_pos
+        if ay == gy:
+            min_x, max_x = min(ax, gx), max(ax, gx)
+            for wx, wy in wall:
+                if wy == ay and min_x < wx < max_x:
+                    return True
+        if ax == gx:
+            min_y, max_y = min(ay, gy), max(ay, gy)
+            for wx, wy in wall:
+                if wx == ax and min_y < wy < max_y:
+                    return True
+        for wx, wy in wall:
+            if ay == wy and min(ax, wx) < wx < max(ax, wx):
+                return True
+            if ax == wx and min(ay, wy) < wy < max(ay, wy):
+                return True
+        return False
 

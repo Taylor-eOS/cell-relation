@@ -15,8 +15,8 @@ class Encoder(nn.Module):
         self.rel_pos_embed = nn.Linear(2, 4)
         self.type_rel_embed = nn.Embedding(16, 4)
         d_model = 2 * C + 4 + 4 + 4
-        enc_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=2, batch_first=True)
-        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=2)
+        enc_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=settings.attention_heads, batch_first=True)
+        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=settings.transformer_layers)
         coords = torch.stack(torch.meshgrid(torch.arange(size), torch.arange(size), indexing='ij'), dim=-1).view(num_cells, 2).float()
         coords = coords / (size - 1) * 2 - 1
         ri = coords[:, None, 0]
@@ -45,18 +45,17 @@ class Encoder(nn.Module):
         for b in range(B):
             agent_idx = int(flat_agent.argmax())
             ce_agent = cell_emb[b, agent_idx, :].unsqueeze(0)
-            ce_agent_exp = ce_agent.expand(self.num_cells - 1, C)
-            idxs = [j for j in range(self.num_cells) if j != agent_idx]
-            other_idxs = torch.tensor(idxs, dtype=torch.long, device=device)
-            ce_others = cell_emb[b, other_idxs, :]
-            rel_offsets = self.rel_full[agent_idx, other_idxs]
+            indices = torch.arange(num_cells, dtype=torch.long, device=device)
+            ce_agent_exp = ce_agent.expand(num_cells, C)
+            ce_all = cell_emb[b, indices, :]
+            rel_offsets = self.rel_full[agent_idx, indices]
             rel_embs = self.rel_pos_embed(rel_offsets)
-            abs_embs = self.abs_pos_embed(other_idxs)
+            abs_embs = self.abs_pos_embed(indices)
             agent_type = type_ids_all[agent_idx].unsqueeze(0)
-            other_types = type_ids_all[other_idxs]
+            other_types = type_ids_all[indices]
             type_pair_ids = agent_type * 4 + other_types
             type_embs = self.type_rel_embed(type_pair_ids)
-            tokens_b = torch.cat([ce_agent_exp, ce_others, rel_embs, abs_embs, type_embs], dim=-1)
+            tokens_b = torch.cat([ce_agent_exp, ce_all, rel_embs, abs_embs, type_embs], dim=-1)
             tokens_list.append(tokens_b)
         tokens = torch.stack(tokens_list, dim=0)
         t_out = self.transformer(tokens)
