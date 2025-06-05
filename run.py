@@ -1,32 +1,30 @@
-import argparse
 import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import settings
-from pretrain import train_world
 from gridworld import GridWorld
 from model import Encoder, PolicyModel
 
-def run_episode(env,policy,max_steps):
+def run_episode(env, policy, max_steps):
     obs = env._get_obs()
     trajectory = []
     reached_goal = False
     for _ in range(max_steps):
         logits = policy(obs)
-        action,logp = sample_action(logits)
-        next_obs,done,collision = env.step(action)
+        action, logp = sample_action(logits)
+        next_obs, done, collision = env.step(action)
         prev_state = obs[0].flatten().argmax().item()
         next_state = next_obs[0].flatten().argmax().item()
-        trajectory.append((prev_state,action,next_state,logp,collision))
+        trajectory.append((prev_state, action, next_state, logp, collision))
         obs = next_obs
         if collision:
             break
         if done:
             reached_goal = True
             break
-    return trajectory,reached_goal
+    return trajectory, reached_goal
 
 def train_policy():
     env = GridWorld()
@@ -43,6 +41,7 @@ def train_policy():
             if s in GridWorld.STAGE_OFFSETS:
                 cumulative_offsets.extend(GridWorld.STAGE_OFFSETS[s])
         max_steps_stage = max(abs(dx)+abs(dy) for dx, dy in cumulative_offsets)
+        max_steps_stage = max_steps_stage + 1
         success_count_stage = 0
         step_sum_stage = 0
         for ep in range(1, settings.training_steps+1):
@@ -51,11 +50,11 @@ def train_policy():
             step_sum_stage += len(trajectory)
             if reached_goal:
                 success_count_stage += 1
-                rewards = assign_rewards(trajectory,True)
+                rewards = assign_rewards(trajectory, True)
             else:
-                rewards = assign_rewards(trajectory,False)
+                rewards = assign_rewards(trajectory, False)
             loss = torch.tensor(0.0)
-            for (_,_,_,logp, _),r in zip(trajectory,rewards):
+            for (_, _, _, logp, _), r in zip(trajectory, rewards):
                 loss = loss-logp*r
             optimizer.zero_grad()
             loss.backward()
@@ -72,15 +71,15 @@ def train_policy():
     max_steps_free = 8
     success_count = 0
     step_sum = 0
-    for ep in range(1,settings.training_steps+1):
+    for ep in range(1, settings.training_steps+1):
         obs = env.reset()
         trajectory, reached_goal = run_episode(env, policy, max_steps_free)
         step_sum += len(trajectory)
-        rewards = assign_rewards(trajectory,reached_goal)
+        rewards = assign_rewards(trajectory, reached_goal)
         if reached_goal:
             success_count+=1
         loss = torch.tensor(0.0)
-        for (_,_,_,logp,_),r in zip(trajectory,rewards):
+        for (_, _, _, logp, _), r in zip(trajectory, rewards):
             loss = loss-logp*r
         optimizer.zero_grad()
         loss.backward()
@@ -103,10 +102,10 @@ def assign_rewards(trajectory, reached_goal):
     rewards = []
     if reached_goal:
         seq_len = len(trajectory)
-        for (_,_,_,_,collision) in trajectory:
-            rewards.append(1.0/seq_len)
+        for (_, _, _, _, collision) in trajectory:
+            rewards.append(1.0)
     else:
-        for (_,_,_,_,collision) in trajectory:
+        for (_, _, _, _, collision) in trajectory:
             if collision:
                 rewards.append(-1.0)
             else:
@@ -114,11 +113,5 @@ def assign_rewards(trajectory, reached_goal):
     return rewards
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrain", action = "store_true")
-    args = parser.parse_args()
-    if args.pretrain:
-        train_world()
-    else:
-        train_policy()
+    train_policy()
 

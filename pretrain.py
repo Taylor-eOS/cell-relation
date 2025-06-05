@@ -13,7 +13,7 @@ class WorldModel(nn.Module):
         self.encoder = encoder
         self.action_embed = nn.Linear(4, 8)
         num_cells = settings.grid_size * settings.grid_size
-        self.head = nn.Linear(45, num_cells)
+        self.head = nn.Linear(52, num_cells)
 
     def forward(self, obs, action):
         hvec = self.encoder(obs)
@@ -26,24 +26,27 @@ def train_world():
     env = GridWorld()
     encoder = Encoder()
     model = WorldModel(encoder)
-    optimizer = optim.Adam(model.parameters(),lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
     total_correct = 0
     interval = settings.step_interval
-    for step in range(1,settings.pretraining_steps + 1):
+    for step in range(1, settings.pretraining_steps + 1):
         obs = env._get_obs()
         action = random.randrange(4)
         next_obs, _, _ = env.step(action)
         true_pos = int(next_obs[0].flatten().argmax())
-        logits = model(obs,action)
-        loss = F.cross_entropy(logits,torch.tensor([true_pos]))
+        logits = model(obs, action)
+        loss = F.cross_entropy(logits, torch.tensor([true_pos]))
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        pred_pos = torch.argmax(logits,dim=1).item()
+        pred_pos = torch.argmax(logits, dim=1).item()
         total_correct += int(pred_pos == true_pos)
         if step % interval == 0:
             acc = total_correct / interval
             print(f"Step {step}, predictive accuracy: {acc:.2f}")
             total_correct = 0
-    torch.save(model.state_dict(),"world_model.pt")
+    torch.save(model.state_dict(), "world_model.pt")
+
+if __name__ == "__main__":
+    train_world()
 

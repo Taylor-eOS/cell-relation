@@ -9,11 +9,14 @@ class Encoder(nn.Module):
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(16, 16, kernel_size=3, padding=1)
         C = 16
-        d_model = 2 * C + 2 + 3
-        enc_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=1, batch_first=True)
-        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=2)
         size = settings.grid_size
         num_cells = size * size
+        self.abs_pos_embed = nn.Embedding(num_cells, 4)
+        self.rel_pos_embed = nn.Linear(2, 4)
+        self.type_rel_embed = nn.Embedding(16, 4)
+        d_model = 2 * C + 4 + 4 + 4
+        enc_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=2, batch_first=True)
+        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=2)
         coords = torch.stack(torch.meshgrid(torch.arange(size), torch.arange(size), indexing='ij'), dim=-1).view(num_cells, 2).float()
         coords = coords / (size - 1) * 2 - 1
         ri = coords[:, None, 0]
@@ -33,18 +36,27 @@ class Encoder(nn.Module):
         num_cells = h * w
         cell_emb = x.view(B, C, num_cells).permute(0, 2, 1)
         flat_obs = torch.from_numpy(obs).to(device).view(3, num_cells)
+        flat_agent = flat_obs[0]
+        type_ids_all = torch.zeros(num_cells, dtype=torch.long, device=device)
+        type_ids_all[flat_obs[2] == 1] = 1
+        type_ids_all[flat_obs[1] == 1] = 2
+        type_ids_all[flat_obs[0] == 1] = 3
         tokens_list = []
         for b in range(B):
-            flat_agent_layer = torch.from_numpy(obs[0]).flatten().to(device)
-            agent_idx = int(flat_agent_layer.argmax())
+            agent_idx = int(flat_agent.argmax())
             ce_agent = cell_emb[b, agent_idx, :].unsqueeze(0)
             ce_agent_exp = ce_agent.expand(self.num_cells - 1, C)
             idxs = [j for j in range(self.num_cells) if j != agent_idx]
             other_idxs = torch.tensor(idxs, dtype=torch.long, device=device)
             ce_others = cell_emb[b, other_idxs, :]
             rel_offsets = self.rel_full[agent_idx, other_idxs]
-            cell_types = flat_obs[:, other_idxs].permute(1, 0)
-            tokens_b = torch.cat([ce_agent_exp, ce_others, rel_offsets, cell_types], dim=-1)
+            rel_embs = self.rel_pos_embed(rel_offsets)
+            abs_embs = self.abs_pos_embed(other_idxs)
+            agent_type = type_ids_all[agent_idx].unsqueeze(0)
+            other_types = type_ids_all[other_idxs]
+            type_pair_ids = agent_type * 4 + other_types
+            type_embs = self.type_rel_embed(type_pair_ids)
+            tokens_b = torch.cat([ce_agent_exp, ce_others, rel_embs, abs_embs, type_embs], dim=-1)
             tokens_list.append(tokens_b)
         tokens = torch.stack(tokens_list, dim=0)
         t_out = self.transformer(tokens)
@@ -55,7 +67,7 @@ class PolicyModel(nn.Module):
     def __init__(self, encoder):
         super().__init__()
         self.encoder = encoder
-        self.head = nn.Linear(37, 4)
+        self.head = nn.Linear(44, 4)
 
     def forward(self, obs):
         hvec = self.encoder(obs)
