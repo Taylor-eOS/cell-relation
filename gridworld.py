@@ -1,6 +1,7 @@
 import random
 import numpy as np
 import settings
+import utils
 
 class GridWorld:
     def __init__(self):
@@ -41,26 +42,27 @@ class GridWorld:
 
     def sample_stage(self, stage):
         free_cells = [(i, j) for i in range(self.size) for j in range(self.size)]
-        self.agent_pos = list(random.choice(free_cells))
-        free_cells.remove(tuple(self.agent_pos))
-        all_offsets = []
-        max_stage = max(settings.stage_offsets.keys())
+        max_stage = max(utils.stage_offsets().keys())
         actual_stage = min(stage, max_stage)
-        for s in range(1, actual_stage + 1):
-            all_offsets.extend(settings.stage_offsets[s])
-        candidates = []
-        ax, ay = self.agent_pos
-        for dx, dy in all_offsets:
+        so_dict = utils.stage_offsets()
+        while True:
+            self.agent_pos = list(random.choice(free_cells))
+            ax, ay = self.agent_pos
+            if actual_stage == 1 or random.random() < 0.5:
+                dx, dy = so_dict[actual_stage]
+            else:
+                prev_stage = random.randint(1, actual_stage - 1)
+                dx, dy = so_dict[prev_stage]
             gx = ax + dx
             gy = ay + dy
-            if 0 <= gx < self.size and 0 <= gy < self.size:
-                candidates.append((gx, gy))
-        candidates = [c for c in set(candidates) if c != tuple(self.agent_pos)]
-        if candidates:
-            self.goal_pos = list(random.choice(candidates))
-        else:
-            self.goal_pos = list(random.choice(free_cells))
-        self.wall_positions = self.generate_wall(avoid_positions=[], agent_pos=self.agent_pos, goal_pos=self.goal_pos, require_blocking=False)
+            if 0 <= gx < self.size and 0 <= gy < self.size and (gx, gy) != tuple(self.agent_pos):
+                self.goal_pos = [gx, gy]
+                break
+        self.wall_positions = self.generate_wall(
+            avoid_positions=[],
+            agent_pos=self.agent_pos,
+            goal_pos=self.goal_pos,
+            require_blocking=False)
         return self._get_obs()
 
     def reset(self):
@@ -92,7 +94,7 @@ class GridWorld:
             avoid_set.add(tuple(goal_pos))
         valid_walls = [w for w in all_walls if not (set(w) & avoid_set)]
         if agent_pos is not None and goal_pos is not None:
-            blocking_walls = [w for w in valid_walls if self.is_blocking(agent_pos, goal_pos, w)]
+            blocking_walls = [w for w in valid_walls if is_blocking(agent_pos, goal_pos, w)]
             if require_blocking:
                 if blocking_walls:
                     return random.choice(blocking_walls)
@@ -110,23 +112,25 @@ class GridWorld:
                 best_wall = w
         return best_wall
 
-    def is_blocking(self, agent_pos, goal_pos, wall):
-        ax, ay = agent_pos
-        gx, gy = goal_pos
-        if ay == gy:
-            min_x, max_x = min(ax, gx), max(ax, gx)
-            for wx, wy in wall:
-                if wy == ay and min_x < wx < max_x:
-                    return True
-        if ax == gx:
-            min_y, max_y = min(ay, gy), max(ay, gy)
-            for wx, wy in wall:
-                if wx == ax and min_y < wy < max_y:
-                    return True
-        for wx, wy in wall:
-            if ay == wy and min(ax, wx) < wx < max(ax, wx):
-                return True
-            if ax == wx and min(ay, wy) < wy < max(ay, wy):
-                return True
-        return False
+def is_blocking(agent_pos, goal_pos, wall):
+    from collections import deque
+    ax, ay = agent_pos
+    gx, gy = goal_pos
+    wall_set = set(tuple(w) for w in wall)
+    dist = abs(ax-gx)+abs(ay-gy)
+    visited = {(ax, ay)}
+    queue = deque([(ax, ay)])
+    while queue:
+        x, y = queue.popleft()
+        if (x, y) == (gx, gy):
+            return False
+        d = abs(x-gx)+abs(y-gy)
+        for dx, dy in [(-1,0),(1,0),(0,-1),(0,1)]:
+            nx, ny = x+dx, y+dy
+            if (nx, ny) in wall_set or (nx,ny) in visited:continue
+            nd = abs(nx-gx)+abs(ny-gy)
+            if nd == d-1:
+                visited.add((nx, ny))
+                queue.append((nx, ny))
+    return True
 
