@@ -5,21 +5,6 @@ import numpy as np
 import settings
 import utils
 
-def generate_all_walls(size):
-    walls = []
-    for x in range(size):
-        for y in range(size - 2):
-            walls.append([(x, y), (x, y + 1), (x, y + 2)])
-    for y in range(size):
-        for x in range(size - 2):
-            walls.append([(x, y), (x + 1, y), (x + 2, y)])
-    return walls
-
-def wall_in_line(agent_pos, goal_pos, wall_set):
-    line_points = utils.bresenham_line(agent_pos[0], agent_pos[1], goal_pos[0], goal_pos[1])
-    intermediate_points = line_points[1:-1]
-    return any(p in wall_set for p in intermediate_points)
-
 def make_obs(agent_pos, goal_pos, wall_positions, size):
     agent_map = np.zeros((size, size), dtype=np.float32)
     goal_map = np.zeros((size, size), dtype=np.float32)
@@ -60,8 +45,6 @@ def generate_all_states(size, walls):
 def save_states(all_states, size):
     offsets = utils.stage_offsets()
     os.makedirs("images", exist_ok=True)
-    with open("images/wall_states.txt", "a") as f_txt:
-        pass
     combined_data = {}
 
     def filter_by_offset(states, target_dx, target_dy):
@@ -76,18 +59,26 @@ def save_states(all_states, size):
         adjacent_hits = []
         for wall, a, g in states:
             for wx, wy in wall:
-                if abs(a[0] - wx) + abs(a[1] - wy) == 1 or abs(g[0] - wx) + abs(g[1] - wy) == 1:
+                agent_adjacent = any(abs(a[0] - wx) + abs(a[1] - wy) == 1 for wx, wy in wall)
+                goal_adjacent = any(abs(g[0] - wx) + abs(g[1] - wy) == 1 for wx, wy in wall)
+                if agent_adjacent and goal_adjacent:
                     adjacent_hits.append((wall, a, g))
-                    break
         return adjacent_hits
 
     def build_data_arrays(states):
         obs_list, agent_list, goal_list, wall_list = [], [], [], []
         for i, (wall, a, g) in enumerate(states):
-            with open("images/wall_states.txt", "a") as f_txt:
-                f_txt.write(f"{wall}, {a}, {g}\n")
+            if settings.create_log:
+                dx = g[0] - a[0]
+                dy = g[1] - a[1]
+                with open(f"images/wall_states_dx{dx}_dy{dy}.txt", "a") as f_txt:
+                    f_txt.write(f"{wall}, {a}, {g}\n")
             obs = make_obs(a, g, wall, size)
-            utils.render_obs(obs, f"stage_{stage}_{i}", f"images/stage_{stage}", render_images=settings.render_curriculum_images)
+            def render_to(path, obs, name): utils.render_obs(obs, name, path, render_images=settings.render_state_images)
+            if settings.full_state_render:
+                render_to(f"images/stage_{stage}", obs, f"stage_{stage}_{i}")
+            elif i == 0:
+                render_to("images", obs, f"stage_{stage}_{i}")
             obs_list.append(obs)
             agent_list.append(a)
             goal_list.append(g)
@@ -121,10 +112,23 @@ def save_states(all_states, size):
         combined_data[f"stage_{stage}_num_walls"] = num_walls
     np.savez_compressed("curriculum.npz", **combined_data)
 
+def generate_all_walls(size):
+    walls = []
+    for x in range(size):
+        for y in range(size - 2):
+            walls.append([(x, y), (x, y + 1), (x, y + 2)])
+    for y in range(size):
+        for x in range(size - 2):
+            walls.append([(x, y), (x + 1, y), (x + 2, y)])
+    return walls
+
+def wall_in_line(agent_pos, goal_pos, wall_set):
+    line_points = utils.bresenham_line(agent_pos[0], agent_pos[1], goal_pos[0], goal_pos[1])
+    intermediate_points = line_points[1:-1]
+    return any(p in wall_set for p in intermediate_points)
+
 def main():
     os.makedirs("images", exist_ok=True)
-    with open("images/wall_states.txt", "w") as f:
-        pass
     size = settings.grid_size
     walls = generate_all_walls(size)
     print(f"Total walls generated: {len(walls)}")

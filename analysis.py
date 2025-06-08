@@ -17,7 +17,7 @@ def analyze_episode(trajectory, reached_goal, ep, stage=None, free_roam=False):
             filename = 'images/stage_log.txt'
             context = f'Stage {stage}, Episode {ep}'
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, 'w') as f:
+        with open(filename, 'a') as f:
             f.write(f'{context}: reached_goal={reached_goal}, '
                     f'steps={len(trajectory)}, '
                     f'collisions={sum(1 for (_, _, _, _, collision) in trajectory if collision)}\n')

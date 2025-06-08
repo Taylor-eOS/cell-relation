@@ -2,9 +2,9 @@ import pygame
 import torch
 import torch.nn.functional as F
 import time
-from run import sample_action
 from model import Encoder, PolicyModel
 from gridworld import GridWorld
+from shared import sample_action
 import settings
 
 def draw_grid(env, screen, grid_size, cell_size, button_height, hover, pressing):
@@ -59,11 +59,12 @@ def inference_loop():
         hover_button = False
         pressing_button = False
         draw_grid(env, screen, grid_size, cell_size, button_height, hover_button, pressing_button)
+        time.sleep(settings.inference_sleep)
         done = False
         while not done and running:
             with torch.no_grad():
                 logits = policy(obs)
-            action, _ = sample_action(logits)
+            action = logits.argmax(dim=-1).item()
             obs, done, stepped_on_wall = env.step(action)
             mx, my = pygame.mouse.get_pos()
             hover_button = (my >= grid_size * cell_size and mx < grid_size * cell_size)

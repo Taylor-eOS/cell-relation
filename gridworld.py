@@ -40,31 +40,6 @@ class GridWorld:
         done = (self.agent_pos == self.goal_pos)
         return obs, done, stepped_on_wall
 
-    def sample_stage(self, stage):
-        free_cells = [(i, j) for i in range(self.size) for j in range(self.size)]
-        max_stage = max(utils.stage_offsets().keys())
-        actual_stage = min(stage, max_stage)
-        so_dict = utils.stage_offsets()
-        while True:
-            self.agent_pos = list(random.choice(free_cells))
-            ax, ay = self.agent_pos
-            if actual_stage == 1 or random.random() < 0.5:
-                dx, dy = so_dict[actual_stage]
-            else:
-                prev_stage = random.randint(1, actual_stage - 1)
-                dx, dy = so_dict[prev_stage]
-            gx = ax + dx
-            gy = ay + dy
-            if 0 <= gx < self.size and 0 <= gy < self.size and (gx, gy) != tuple(self.agent_pos):
-                self.goal_pos = [gx, gy]
-                break
-        self.wall_positions = self.generate_wall(
-            avoid_positions=[],
-            agent_pos=self.agent_pos,
-            goal_pos=self.goal_pos,
-            require_blocking=False)
-        return self._get_obs()
-
     def reset(self):
         free_cells = [(i, j) for i in range(self.size) for j in range(self.size)]
         self.agent_pos = list(random.choice(free_cells))
@@ -111,6 +86,36 @@ class GridWorld:
                 min_overlap = overlap
                 best_wall = w
         return best_wall
+
+def sample_stage(self, stage, preliminary=False, exclude_simple=False):
+    free_cells = [(i, j) for i in range(self.size) for j in range(self.size)]
+    max_stage = max(utils.stage_offsets(preliminary=preliminary).keys())
+    actual_stage = min(stage, max_stage)
+    so_dict = utils.stage_offsets(preliminary=preliminary)
+    if not hasattr(self, "_used_stages"):
+        self._used_stages = set()
+    while True:
+        self.agent_pos = list(random.choice(free_cells))
+        ax, ay = self.agent_pos
+        if stage not in self._used_stages:
+            dx, dy = so_dict[actual_stage]
+            self._used_stages.add(stage)
+        elif actual_stage == 1 or random.random() < 0.5:
+            dx, dy = so_dict[actual_stage]
+        else:
+            prev_stage = random.randint(1, actual_stage - 1)
+            dx, dy = so_dict[prev_stage]
+        gx = ax + dx
+        gy = ay + dy
+        if 0 <= gx < self.size and 0 <= gy < self.size and (gx, gy) != tuple(self.agent_pos):
+            self.goal_pos = [gx, gy]
+            break
+    self.wall_positions = self.generate_wall(
+        avoid_positions=[],
+        agent_pos=self.agent_pos,
+        goal_pos=self.goal_pos,
+        require_blocking=False)
+    return self._get_obs()
 
 def is_blocking(agent_pos, goal_pos, wall):
     from collections import deque
