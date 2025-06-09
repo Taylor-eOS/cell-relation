@@ -2,11 +2,10 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import settings
-import utils
 
 def render_grid(env, state_name, output_dir):
         obs = env._get_obs()
-        utils.render_obs(obs, state_name, output_dir, render_images=settings.render_images)
+        render_obs(obs, state_name, output_dir, render_images=settings.render_images)
 
 def analyze_episode(trajectory, reached_goal, ep, stage=None, free_roam=False):
     if settings.create_log:
@@ -29,4 +28,24 @@ def analyze_episode(trajectory, reached_goal, ep, stage=None, free_roam=False):
                         f'logp={logp_val:.4f}, '
                         f'collision={collision}\n')
             f.write('\n')
+
+def render_obs(obs, state_name, output_dir, render_images=False):
+    if not render_images:
+        return
+    os.makedirs(output_dir, exist_ok=True)
+    size = obs.shape[1]
+    img = np.ones((size, size, 3), dtype=np.uint8) * 255
+    wall_map = obs[2]
+    agent_map = obs[0]
+    goal_map = obs[1]
+    img[wall_map == 1.0] = [100, 100, 100]
+    img[goal_map == 1.0] = [255, 0, 0]
+    img[agent_map == 1.0] = [0, 0, 255]
+    fig, ax = plt.subplots(figsize=(4, 4))
+    ax.imshow(img)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    fig.tight_layout(pad=0)
+    fig.savefig(os.path.join(output_dir, f'{state_name}.png'))
+    plt.close(fig)
 

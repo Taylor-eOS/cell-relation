@@ -26,6 +26,7 @@ def stage_offsets(preliminary=True):
             raise FileNotFoundError(f"{perf_file} not found")
         with open(perf_file) as f:
             perf_list = json.load(f)
+        if settings.debug: print(perf_list[:5])
         filtered = [
             (tuple(entry["offset"]), entry["rate"])
             for entry in perf_list
@@ -33,27 +34,6 @@ def stage_offsets(preliminary=True):
         filtered.sort(key=lambda p: p[1], reverse=True)
         sorted_offsets = [off for off, _ in filtered]
         return {i+1: off for i, off in enumerate(sorted_offsets)}
-
-
-def render_obs(obs, state_name, output_dir, render_images=False):
-    if not render_images:
-        return
-    os.makedirs(output_dir, exist_ok=True)
-    size = obs.shape[1]
-    img = np.ones((size, size, 3), dtype=np.uint8) * 255
-    wall_map = obs[2]
-    agent_map = obs[0]
-    goal_map = obs[1]
-    img[wall_map == 1.0] = [100, 100, 100]
-    img[goal_map == 1.0] = [255, 0, 0]
-    img[agent_map == 1.0] = [0, 0, 255]
-    fig, ax = plt.subplots(figsize=(4, 4))
-    ax.imshow(img)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    fig.tight_layout(pad=0)
-    fig.savefig(os.path.join(output_dir, f'{state_name}.png'))
-    plt.close(fig)
 
 def bresenham_line(x0, y0, x1, y1):
     points = []

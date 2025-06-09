@@ -48,11 +48,7 @@ def evaluate_wall_curriculum(num_episodes, max_steps=settings.max_steps, model_p
         print(f"Stage {stage}: {success_count}/{num_episodes}")
     return success_rates
 
-def evaluate_and_cache_performance(
-    num_episodes=settings.evaluation_episodes,
-    max_steps=settings.max_steps,
-    model_path="policy_model.pt"
-):
+def evaluate_and_cache_performance(num_episodes=settings.evaluation_episodes, max_steps=settings.max_steps, model_path="policy_model.pt"):
     print("Evaluating curriculum")
     success_rates = evaluate_wall_curriculum(num_episodes, max_steps, model_path)
     size = settings.grid_size
@@ -65,22 +61,18 @@ def evaluate_and_cache_performance(
     all_uniq = {(abs(dx), abs(dy)) for dx, dy in all_raw}
     all_distance_sorted = sorted(
         all_uniq,
-        key=lambda t: (t[0]*t[0] + t[1]*t[1], t[0], t[1])
-    )
+        key=lambda t: (t[0]*t[0] + t[1]*t[1], t[0], t[1]))
     back = [
         off for off in all_distance_sorted
-        if (off[0] == 0 or off[1] == 0) and (off[0] > 1 or off[1] > 1)
-    ]
+        if (off[0] == 0 or off[1] == 0) and (off[0] > 1 or off[1] > 1)]
     front = [off for off in all_distance_sorted if off not in back]
     pretraining_ordered = front + back
     ordered_offsets = [
         off for off in pretraining_ordered
-        if off not in ((1, 0), (0, 1))
-    ]
+        if off not in ((1, 0), (0, 1))]
     performance_list = [
         {"offset": [dx, dy], "rate": rate}
-        for (dx, dy), rate in zip(ordered_offsets, success_rates)
-    ]
+        for (dx, dy), rate in zip(ordered_offsets, success_rates)]
     with open("offset_performance.json", "w") as f:
         json.dump(performance_list, f, indent=2)
     return success_rates

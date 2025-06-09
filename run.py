@@ -18,21 +18,20 @@ def train_policy():
     stages = utils.stage_offsets(preliminary=True).keys()
     if settings.skip_to_wall:
         policy.load_state_dict(torch.load("policy_model.pt"))
-        print("Skipping to wall curriculum")
     else:
         for i in range(settings.epochs):
-            print(f"Epoch {i}")
+            print(f"Epoch {i + 1}")
             for stage in stages:
                 train_stage(env, policy, optimizer, stage)
             torch.save(policy.state_dict(), "policy_model.pt")
     if settings.skip_curriculum:
         policy.load_state_dict(torch.load("policy_model.pt"))
-        print("Skipping wall curriculum")
     else:
-        wall_curriculum.main()
-        evaluate.evaluate_and_cache_performance(model_path="policy_model.pt")
+        if settings.calculate_performances:
+            wall_curriculum.main()
+            evaluate.evaluate_and_cache_performance(model_path="policy_model.pt")
         for i in range(settings.epochs):
-            print(f"Epoch {i}")
+            print(f"Epoch {i + 1}")
             train_curriculum(env, policy, optimizer)
             torch.save(policy.state_dict(), "policy_model.pt")
     train_free_roam(env, policy, optimizer)
@@ -44,7 +43,7 @@ def train_stage(env, policy, optimizer, stage):
     step_sum = 0
     for ep in range(1, settings.training_steps + 1):
         env.sample_stage(stage, preliminary=True)
-        if ep == 1:
+        if ep == 1 or settings.full_state_render:
             trajectory, reached_goal = run_episode(env, policy, max_steps, render_prefix=f'stage{stage}_ep{ep}', render_dir=f'images')
             analyze_episode(trajectory, reached_goal, ep, stage=stage)
         else:
@@ -90,7 +89,7 @@ def train_curriculum(env, policy, optimizer):
         step_sum = 0
         for ep in range(1, settings.curriculum_steps + 1):
             sample_wall_example(env, stage, stage_data, prev_data)
-            if ep == 1:
+            if ep < settings.wall_renders + 1 or settings.full_state_render:
                 trajectory, reached_goal = run_episode(env, policy, max_steps, render_prefix=f'stage{stage}_ep{ep}', render_dir=f'images/wall_curriculum')
             else:
                 trajectory, reached_goal = run_episode(env, policy, max_steps)
@@ -119,7 +118,7 @@ def train_free_roam(env, policy, optimizer):
     step_sum = 0
     for ep in range(1, settings.roam_training_steps + 1):
         env.reset()
-        if ep % settings.free_roam_log == 0:
+        if ep % settings.free_roam_log == 0 or settings.full_state_render:
             render_subdir = os.path.join('images/free_roam', f'ep{ep}')
             trajectory, reached_goal = run_episode(env, policy, settings.max_steps, render_prefix=f'freeroam_ep{ep}', render_dir=render_subdir)
             analyze_episode(trajectory, reached_goal, ep, free_roam=True)

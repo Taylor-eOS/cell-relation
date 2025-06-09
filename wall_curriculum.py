@@ -4,6 +4,7 @@ import random
 import numpy as np
 import settings
 import utils
+import analysis
 
 def make_obs(agent_pos, goal_pos, wall_positions, size):
     agent_map = np.zeros((size, size), dtype=np.float32)
@@ -43,7 +44,7 @@ def generate_all_states(size, walls):
     return all_states
 
 def save_states(all_states, size):
-    offsets = utils.stage_offsets()
+    offsets = utils.stage_offsets(preliminary=False)
     os.makedirs("images", exist_ok=True)
     combined_data = {}
 
@@ -74,10 +75,8 @@ def save_states(all_states, size):
                 with open(f"images/wall_states_dx{dx}_dy{dy}.txt", "a") as f_txt:
                     f_txt.write(f"{wall}, {a}, {g}\n")
             obs = make_obs(a, g, wall, size)
-            def render_to(path, obs, name): utils.render_obs(obs, name, path, render_images=settings.render_state_images)
-            if settings.full_state_render:
-                render_to(f"images/stage_{stage}", obs, f"stage_{stage}_{i}")
-            elif i == 0:
+            def render_to(path, obs, name): analysis.render_obs(obs, name, path, render_images=settings.render_state_images)
+            if i == 0 or settings.full_state_render:
                 render_to("images", obs, f"stage_{stage}_{i}")
             obs_list.append(obs)
             agent_list.append(a)
