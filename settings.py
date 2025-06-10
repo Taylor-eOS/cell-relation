@@ -30,5 +30,6 @@ score_offsets = False
 epochs = 2
 evaluation_episodes = 1000
 evaluation_render_samples = 1
-evaluate_learning_steps = 1000
+evaluate_learning_steps = 2000
+evaluate_learning_runs = 10
 
