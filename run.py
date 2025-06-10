@@ -27,7 +27,7 @@ def train_policy():
     if settings.skip_curriculum:
         policy.load_state_dict(torch.load("policy_model.pt"))
     else:
-        if settings.calculate_performances:
+        if settings.run_wall_curriculum_evaluation:
             wall_curriculum.main()
             evaluate.evaluate_and_cache_performance(model_path="policy_model.pt")
         for i in range(settings.epochs):
@@ -116,7 +116,7 @@ def train_curriculum(env, policy, optimizer):
 def train_free_roam(env, policy, optimizer):
     success_count = 0
     step_sum = 0
-    for ep in range(1, settings.roam_training_steps + 1):
+    for ep in range(1, settings.roam_steps + 1):
         env.reset()
         if ep % settings.free_roam_log == 0 or settings.full_state_render:
             render_subdir = os.path.join('images/free_roam', f'ep{ep}')
@@ -144,13 +144,13 @@ def assign_rewards(trajectory, reached_goal):
     if reached_goal:
         seq_len = len(trajectory)
         for (_, _, _, _, collision) in trajectory:
-            rewards.append(1.0)
+            rewards.append(1.0 - 0.05 * seq_len)
     else:
         for (_, _, _, _, collision) in trajectory:
             if collision:
                 rewards.append(-1.0)
             else:
-                rewards.append(0.0)
+                rewards.append(-0.1)
     return rewards
 
 def compute_loss(trajectory, rewards):

@@ -44,7 +44,7 @@ def generate_all_states(size, walls):
     return all_states
 
 def save_states(all_states, size):
-    offsets = utils.stage_offsets(preliminary=False)
+    offsets = utils.stage_offsets()
     os.makedirs("images", exist_ok=True)
     combined_data = {}
 
