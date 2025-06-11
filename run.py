@@ -1,10 +1,11 @@
 import os
+import copy
+import shutil
 import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import shutil
 from gridworld import GridWorld
 from analysis import analyze_episode
 from shared import initialize_policy, load_wall_stage_data, sample_wall_example, run_episode
@@ -34,8 +35,7 @@ def train_policy():
             print(f"Epoch {i + 1}")
             train_curriculum(env, policy, optimizer)
             torch.save(policy.state_dict(), "policy_model.pt")
-    train_free_roam(env, policy, optimizer)
-    #train_free_roam_rollback(env, policy, optimizer)
+    train_free_roam_rollback(env, policy, optimizer)
     torch.save(policy.state_dict(), "policy_model.pt")
 
 def train_stage(env, policy, optimizer, stage):
@@ -141,25 +141,20 @@ def train_free_roam(env, policy, optimizer):
             step_sum = 0
 
 def train_free_roam_rollback(env, policy, optimizer):
-    branch_size = settings.step_interval * 10
+    branch_size = settings.step_interval * 24
     baseline_rate = None
-    accepted_count = 0
     ep = 1
     while ep <= settings.roam_steps:
         snapshot_policy = {k: v.clone() for k, v in policy.state_dict().items()}
-        snapshot_optimizer = {k: v.clone() for k, v in optimizer.state_dict().items()}
+        snapshot_optimizer = copy.deepcopy(optimizer.state_dict())
         branch_success = 0
         branch_episodes = min(branch_size, settings.roam_steps - ep + 1)
-        success_count = 0
-        step_sum = 0
+        success_count, step_sum = 0, 0
         for _ in range(branch_episodes):
             env.reset()
             if ep % settings.free_roam_log == 0 or settings.full_state_render:
                 render_subdir = os.path.join('images/free_roam', f'ep{ep}')
-                trajectory, reached_goal = run_episode(
-                    env, policy, settings.max_steps,
-                    render_prefix=f'freeroam_ep{ep}', render_dir=render_subdir
-                )
+                trajectory, reached_goal = run_episode(env, policy, settings.max_steps, render_prefix=f'freeroam_ep{ep}', render_dir=render_subdir)
                 analyze_episode(trajectory, reached_goal, ep, free_roam=True)
             else:
                 trajectory, reached_goal = run_episode(env, policy, settings.max_steps)
@@ -173,22 +168,23 @@ def train_free_roam_rollback(env, policy, optimizer):
             loss.backward()
             optimizer.step()
             if ep % settings.step_interval == 0:
-                success_rate = success_count / settings.step_interval
+                rate = success_count / settings.step_interval
                 avg_steps = step_sum / settings.step_interval
-                print(f"Free roam episode {ep:5}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
-                success_count = 0
-                step_sum = 0
+                print(f"Free roam episode {ep:5}, success rate: {rate:.2f}, avg steps: {avg_steps:.2f}")
+                success_count, step_sum = 0, 0
             ep += 1
         branch_rate = branch_success / branch_episodes
         if baseline_rate is None:
             baseline_rate = branch_rate
-            accepted_count = 1
+            print(f"Initial branch: branch_rate={branch_rate:.2f}")
         elif branch_rate > baseline_rate:
-            accepted_count += 1
-            baseline_rate = (baseline_rate * (accepted_count - 1) + branch_rate) / accepted_count
+            old = baseline_rate
+            baseline_rate = branch_rate
+            print(f"Branch accepted: branch_rate={branch_rate:.2f} > last_rate={old:.2f}")
         else:
             policy.load_state_dict(snapshot_policy)
             optimizer.load_state_dict(snapshot_optimizer)
+            print(f"Branch rolled back: branch_rate={branch_rate:.2f} <= last_rate={baseline_rate:.2f}")
 
 def assign_rewards(trajectory, reached_goal):
     size = settings.grid_size
