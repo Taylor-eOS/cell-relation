@@ -26,7 +26,6 @@ def stage_offsets(preliminary=True):
             raise FileNotFoundError(f"{perf_file} not found")
         with open(perf_file) as f:
             perf_list = json.load(f)
-        if settings.debug: print(perf_list[:5])
         filtered = [
             (tuple(entry["offset"]), entry["rate"])
             for entry in perf_list

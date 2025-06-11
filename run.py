@@ -17,24 +17,25 @@ def train_policy():
     env, policy, optimizer = initialize_policy()
     stages = utils.stage_offsets(preliminary=True).keys()
     if settings.skip_to_wall:
-        policy.load_state_dict(torch.load("policy_model.pt"))
+        policy.load_state_dict(torch.load('policy_model.pt'))
     else:
         for i in range(settings.epochs):
             print(f"Epoch {i + 1}")
             for stage in stages:
                 train_stage(env, policy, optimizer, stage)
-            torch.save(policy.state_dict(), "policy_model.pt")
+            torch.save(policy.state_dict(), 'policy_model.pt')
     if settings.skip_curriculum:
-        policy.load_state_dict(torch.load("policy_model.pt"))
+        policy.load_state_dict(torch.load('policy_model.pt'))
     else:
-        if not os.path.exists('curriculum.npz') or settings.wall_curriculum_evaluation:
-            wall_curriculum.main()
-            evaluate.evaluate_and_cache_performance(model_path="policy_model.pt")
         for i in range(settings.epochs):
+            if not os.path.exists('curriculum.npz') or settings.wall_curriculum_evaluation:
+                wall_curriculum.main()
+                evaluate.evaluate_and_cache_performance(model_path="policy_model.pt")
             print(f"Epoch {i + 1}")
             train_curriculum(env, policy, optimizer)
             torch.save(policy.state_dict(), "policy_model.pt")
     train_free_roam(env, policy, optimizer)
+    #train_free_roam_rollback(env, policy, optimizer)
     torch.save(policy.state_dict(), "policy_model.pt")
 
 def train_stage(env, policy, optimizer, stage):
@@ -139,6 +140,56 @@ def train_free_roam(env, policy, optimizer):
             success_count = 0
             step_sum = 0
 
+def train_free_roam_rollback(env, policy, optimizer):
+    branch_size = settings.step_interval * 10
+    baseline_rate = None
+    accepted_count = 0
+    ep = 1
+    while ep <= settings.roam_steps:
+        snapshot_policy = {k: v.clone() for k, v in policy.state_dict().items()}
+        snapshot_optimizer = {k: v.clone() for k, v in optimizer.state_dict().items()}
+        branch_success = 0
+        branch_episodes = min(branch_size, settings.roam_steps - ep + 1)
+        success_count = 0
+        step_sum = 0
+        for _ in range(branch_episodes):
+            env.reset()
+            if ep % settings.free_roam_log == 0 or settings.full_state_render:
+                render_subdir = os.path.join('images/free_roam', f'ep{ep}')
+                trajectory, reached_goal = run_episode(
+                    env, policy, settings.max_steps,
+                    render_prefix=f'freeroam_ep{ep}', render_dir=render_subdir
+                )
+                analyze_episode(trajectory, reached_goal, ep, free_roam=True)
+            else:
+                trajectory, reached_goal = run_episode(env, policy, settings.max_steps)
+            step_sum += len(trajectory)
+            if reached_goal:
+                success_count += 1
+                branch_success += 1
+            rewards = assign_rewards(trajectory, reached_goal)
+            loss = compute_loss(trajectory, rewards)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            if ep % settings.step_interval == 0:
+                success_rate = success_count / settings.step_interval
+                avg_steps = step_sum / settings.step_interval
+                print(f"Free roam episode {ep:5}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
+                success_count = 0
+                step_sum = 0
+            ep += 1
+        branch_rate = branch_success / branch_episodes
+        if baseline_rate is None:
+            baseline_rate = branch_rate
+            accepted_count = 1
+        elif branch_rate > baseline_rate:
+            accepted_count += 1
+            baseline_rate = (baseline_rate * (accepted_count - 1) + branch_rate) / accepted_count
+        else:
+            policy.load_state_dict(snapshot_policy)
+            optimizer.load_state_dict(snapshot_optimizer)
+
 def assign_rewards(trajectory, reached_goal):
     size = settings.grid_size
     rewards = []
@@ -167,7 +218,7 @@ def assign_rewards(trajectory, reached_goal):
             boundary_move = not (0 <= raw_x < size and 0 <= raw_y < size)
             if boundary_move:
                 off_count += 1
-                rewards.append(-0.2 * off_count)
+                rewards.append(-0.1 * off_count)
             else:
                 rewards.append(-1.0)
     return rewards
