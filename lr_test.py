@@ -8,13 +8,11 @@ import settings
 from run import compute_loss, assign_rewards
 from shared import initialize_policy, run_episode
 
-print_each = True
-
 def evaluate_accuracy(lr):
     env, policy, _ = initialize_policy()
     optimizer = torch.optim.Adam(policy.parameters(), lr=lr)
     policy.train()
-    steps_limit = settings.evaluate_learning_steps
+    steps_limit = settings.lr_test_steps
     success_count = 0
     total_steps = 0
     total_reward = 0
@@ -36,7 +34,7 @@ def evaluate_accuracy(lr):
         percent = ep / steps_limit * 100
         sys.stdout.write(f"\rProgress: {percent:.0f}%")
         sys.stdout.flush()
-    if print_each: print()
+    print()
     success_rate = success_count / steps_limit
     avg_steps = total_steps / steps_limit
     avg_reward = total_reward / steps_limit
@@ -54,9 +52,9 @@ def evaluate_accuracy(lr):
     loss_cv = np.std(losses) / (np.mean(losses) + 1e-8)
     grad_cv = np.std(grads) / (np.mean(grads) + 1e-8)
     exploding = np.any(np.isnan(grads)) or np.any(grads > 1000)
-    if print_each: print(f"{lr}: success_rate={success_rate:.2f}, avg_steps={avg_steps:.2f}, avg_reward={avg_reward:.2f}")
-    if print_each: print(f"      loss_drop={loss_drop:.4f}, loss_slope={loss_slope:.6f}, loss_cv={loss_cv:.3f}")
-    if print_each: print(f"      grad_drop={grad_drop:.4f}, grad_slope={grad_slope:.6f}, grad_cv={grad_cv:.3f}, exploding={exploding}")
+    if settings.lr_print_each: print(f"{lr}: success_rate={success_rate:.2f}, avg_steps={avg_steps:.2f}, avg_reward={avg_reward:.2f}")
+    if settings.lr_print_each: print(f"      loss_drop={loss_drop:.4f}, loss_slope={loss_slope:.6f}, loss_cv={loss_cv:.3f}")
+    if settings.lr_print_each: print(f"      grad_drop={grad_drop:.4f}, grad_slope={grad_slope:.6f}, grad_cv={grad_cv:.3f}, exploding={exploding}")
     return {
         'success_rate': success_rate,
         'avg_steps': avg_steps,
@@ -75,7 +73,7 @@ def average_metrics(metrics_list):
         avg_metrics[k] = np.mean(values)
     return avg_metrics
 
-def evaluate_multiple_runs(lr, runs=settings.evaluate_learning_runs):
+def evaluate_multiple_runs(lr, runs=settings.lr_test_runs):
     run_metrics = []
     for i in range(runs):
         print(f"Test {i + 1}")
@@ -89,5 +87,5 @@ def evaluate_multiple_runs(lr, runs=settings.evaluate_learning_runs):
     return avg
 
 if __name__ == "__main__":
-    evaluate_multiple_runs(0.00005)
+    evaluate_multiple_runs(settings.policy_lr)
 

@@ -34,10 +34,8 @@ def evaluate_wall_curriculum(num_episodes, max_steps=settings.max_steps, model_p
             if rendered_count < render_samples:
                 if settings.create_grid_log:
                     print_grid(env.agent_pos, env.wall_positions, env.goal_pos)
-                trajectory, reached_goal = run_episode(
-                    env, policy, max_steps, 
-                    render_prefix=f'wall_stage{stage}_ep{ep+1}', 
-                    render_dir=f'images')
+                trajectory, reached_goal = run_episode(env, policy, max_steps, 
+                    render_prefix=f'wall_stage{stage}_ep{ep+1}', render_dir=f'images')
                 rendered_count += 1
             else:
                 _, reached_goal = run_episode(env, policy, max_steps)
@@ -59,20 +57,12 @@ def evaluate_and_cache_performance(num_episodes=settings.evaluation_episodes, ma
                 continue
             all_raw.append((dx, dy))
     all_uniq = {(abs(dx), abs(dy)) for dx, dy in all_raw}
-    all_distance_sorted = sorted(
-        all_uniq,
-        key=lambda t: (t[0]*t[0] + t[1]*t[1], t[0], t[1]))
-    back = [
-        off for off in all_distance_sorted
-        if (off[0] == 0 or off[1] == 0) and (off[0] > 1 or off[1] > 1)]
+    all_distance_sorted = sorted(all_uniq, key=lambda t: (t[0]*t[0] + t[1]*t[1], t[0], t[1]))
+    back = [off for off in all_distance_sorted if (off[0] == 0 or off[1] == 0) and (off[0] > 1 or off[1] > 1)]
     front = [off for off in all_distance_sorted if off not in back]
     pretraining_ordered = front + back
-    ordered_offsets = [
-        off for off in pretraining_ordered
-        if off not in ((1, 0), (0, 1))]
-    performance_list = [
-        {"offset": [dx, dy], "rate": rate}
-        for (dx, dy), rate in zip(ordered_offsets, success_rates)]
+    ordered_offsets = [off for off in pretraining_ordered if off not in ((1, 0), (0, 1))]
+    performance_list = [{"offset": [dx, dy], "rate": rate} for (dx, dy), rate in zip(ordered_offsets, success_rates)]
     with open("offset_performance.json", "w") as f:
         json.dump(performance_list, f, indent=2)
     return success_rates

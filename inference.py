@@ -65,7 +65,7 @@ def inference_loop():
             with torch.no_grad():
                 logits = policy(obs)
             action = logits.argmax(dim=-1).item()
-            obs, done, stepped_on_wall = env.step(action)
+            obs, done, _, _ = env.step(action)
             mx, my = pygame.mouse.get_pos()
             hover_button = (my >= grid_size * cell_size and mx < grid_size * cell_size)
             draw_grid(env, screen, grid_size, cell_size, button_height, hover_button, pressing_button)

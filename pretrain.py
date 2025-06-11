@@ -32,7 +32,7 @@ def train_world():
     for step in range(1, settings.pretraining_steps + 1):
         obs = env._get_obs()
         action = random.randrange(4)
-        next_obs, _, _ = env.step(action)
+        next_obs, _, _, _ = env.step(action)
         true_pos = int(next_obs[0].flatten().argmax())
         logits = model(obs, action)
         loss = F.cross_entropy(logits, torch.tensor([true_pos]))

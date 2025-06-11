@@ -24,21 +24,23 @@ class GridWorld:
     def step(self, action):
         x, y = self.agent_pos
         if action == 0:
-            new_pos = [max(0, x - 1), y]
+            raw_new = [x - 1, y]
         elif action == 1:
-            new_pos = [min(self.size - 1, x + 1), y]
+            raw_new = [x + 1, y]
         elif action == 2:
-            new_pos = [x, max(0, y - 1)]
+            raw_new = [x, y - 1]
         elif action == 3:
-            new_pos = [x, min(self.size - 1, y + 1)]
+            raw_new = [x, y + 1]
         else:
-            new_pos = [x, y]
+            raw_new = [x, y]
+        stepped_off_grid = not (0 <= raw_new[0] < self.size and 0 <= raw_new[1] < self.size)
+        new_pos = [min(max(raw_new[0], 0), self.size - 1), min(max(raw_new[1], 0), self.size - 1)]
         stepped_on_wall = tuple(new_pos) in self.wall_positions
         if not stepped_on_wall:
             self.agent_pos = new_pos
         obs = self._get_obs()
         done = (self.agent_pos == self.goal_pos)
-        return obs, done, stepped_on_wall
+        return obs, done, stepped_on_wall, stepped_off_grid
 
     def reset(self):
         free_cells = [(i, j) for i in range(self.size) for j in range(self.size)]
@@ -46,11 +48,7 @@ class GridWorld:
         free_cells.remove(tuple(self.agent_pos))
         self.goal_pos = list(random.choice(free_cells))
         free_cells.remove(tuple(self.goal_pos))
-        self.wall_positions = self.generate_wall(
-            avoid_positions=[],
-            agent_pos=self.agent_pos,
-            goal_pos=self.goal_pos,
-            require_blocking=True)
+        self.wall_positions = self.generate_wall(avoid_positions=[], agent_pos=self.agent_pos, goal_pos=self.goal_pos, require_blocking=True)
         return self._get_obs()
 
     def generate_wall(self, avoid_positions, agent_pos=None, goal_pos=None, require_blocking=True):

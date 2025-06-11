@@ -27,7 +27,7 @@ def train_policy():
     if settings.skip_curriculum:
         policy.load_state_dict(torch.load("policy_model.pt"))
     else:
-        if settings.run_wall_curriculum_evaluation:
+        if not os.path.exists('curriculum.npz') or settings.wall_curriculum_evaluation:
             wall_curriculum.main()
             evaluate.evaluate_and_cache_performance(model_path="policy_model.pt")
         for i in range(settings.epochs):
@@ -140,17 +140,36 @@ def train_free_roam(env, policy, optimizer):
             step_sum = 0
 
 def assign_rewards(trajectory, reached_goal):
+    size = settings.grid_size
     rewards = []
     if reached_goal:
         seq_len = len(trajectory)
-        for (_, _, _, _, collision) in trajectory:
+        for _ in trajectory:
             rewards.append(1.0 - 0.05 * seq_len)
     else:
-        for (_, _, _, _, collision) in trajectory:
-            if collision:
-                rewards.append(-1.0)
-            else:
+        off_count = 0
+        for prev_state, action, _, _, collision in trajectory:
+            if not collision:
                 rewards.append(-0.1)
+                continue
+            x = prev_state % size
+            y = prev_state // size
+            if action == 0:
+                raw_x, raw_y = x - 1, y
+            elif action == 1:
+                raw_x, raw_y = x + 1, y
+            elif action == 2:
+                raw_x, raw_y = x, y - 1
+            elif action == 3:
+                raw_x, raw_y = x, y + 1
+            else:
+                raw_x, raw_y = x, y
+            boundary_move = not (0 <= raw_x < size and 0 <= raw_y < size)
+            if boundary_move:
+                off_count += 1
+                rewards.append(-0.2 * off_count)
+            else:
+                rewards.append(-1.0)
     return rewards
 
 def compute_loss(trajectory, rewards):

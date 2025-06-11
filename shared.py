@@ -1,3 +1,4 @@
+import os
 import random
 import torch
 import torch.nn as nn
@@ -12,12 +13,13 @@ import utils
 def initialize_policy():
     env = GridWorld()
     encoder = Encoder()
-    pretrained = torch.load("world_model.pt")
-    encoder_state = {
-        k.replace("encoder.", ""): v 
-        for k, v in pretrained.items() 
-        if k.startswith("encoder.")}
-    encoder.load_state_dict(encoder_state)
+    if os.path.exists(settings.world_model):
+        pretrained = torch.load(settings.world_model)
+        encoder_state = {
+            k.replace("encoder.", ""): v
+            for k, v in pretrained.items()
+            if k.startswith("encoder.")}
+        encoder.load_state_dict(encoder_state)
     policy = PolicyModel(encoder)
     optimizer = torch.optim.Adam(policy.parameters(), lr=settings.policy_lr)
     return env, policy, optimizer
@@ -66,8 +68,9 @@ def run_episode(env, policy, max_steps, render_prefix=None, render_dir=None):
         prev_state = obs[0].flatten().argmax().item()
         logits = policy(obs)
         action, logp = sample_action(logits)
-        next_obs, done, collision = env.step(action)
+        next_obs, done, on_wall, off_grid = env.step(action)
         next_state = next_obs[0].flatten().argmax().item()
+        collision = on_wall or off_grid
         trajectory.append((prev_state, action, next_state, logp, collision))
         obs = next_obs
         if render_prefix:
