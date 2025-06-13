@@ -14,7 +14,8 @@ class Encoder(nn.Module):
         self.abs_pos_embed = nn.Embedding(num_cells, 4)
         self.rel_pos_embed = nn.Linear(2, 4)
         self.type_rel_embed = nn.Embedding(16, 4)
-        d_model = 2 * C + 4 + 4 + 4
+        self.angle_embed = nn.Linear(2, 4)
+        d_model = 2 * C + 4 + 4 + 4 + 4
         enc_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=settings.attention_heads, batch_first=True)
         self.transformer = nn.TransformerEncoder(enc_layer, num_layers=settings.transformer_layers)
         coords = torch.stack(torch.meshgrid(torch.arange(size), torch.arange(size), indexing='ij'), dim=-1).view(num_cells, 2).float()
@@ -25,6 +26,11 @@ class Encoder(nn.Module):
         cj = coords[None, :, 1]
         rel_full = torch.stack([ri - rj, ci - cj], dim=-1)
         self.register_buffer('rel_full', rel_full)
+        dx = rel_full[..., 0]
+        dy = rel_full[..., 1]
+        angles = torch.atan2(dy, dx)
+        angles_sin_cos = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
+        self.register_buffer('angles_sin_cos', angles_sin_cos)
         self.num_cells = num_cells
 
     def forward(self, obs):
@@ -50,12 +56,14 @@ class Encoder(nn.Module):
             ce_all = cell_emb[b, indices, :]
             rel_offsets = self.rel_full[agent_idx, indices]
             rel_embs = self.rel_pos_embed(rel_offsets)
+            angle_feats = self.angles_sin_cos[agent_idx, indices]
+            angle_embs = self.angle_embed(angle_feats)
             abs_embs = self.abs_pos_embed(indices)
             agent_type = type_ids_all[agent_idx].unsqueeze(0)
             other_types = type_ids_all[indices]
             type_pair_ids = agent_type * 4 + other_types
             type_embs = self.type_rel_embed(type_pair_ids)
-            tokens_b = torch.cat([ce_agent_exp, ce_all, rel_embs, abs_embs, type_embs], dim=-1)
+            tokens_b = torch.cat([ce_agent_exp, ce_all, rel_embs, angle_embs, abs_embs, type_embs], dim=-1)
             tokens_list.append(tokens_b)
         tokens = torch.stack(tokens_list, dim=0)
         t_out = self.transformer(tokens)
@@ -66,7 +74,7 @@ class PolicyModel(nn.Module):
     def __init__(self, encoder):
         super().__init__()
         self.encoder = encoder
-        self.head = nn.Linear(44, 4)
+        self.head = nn.Linear(48, 4)
 
     def forward(self, obs):
         hvec = self.encoder(obs)

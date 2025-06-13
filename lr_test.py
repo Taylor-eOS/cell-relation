@@ -87,5 +87,5 @@ def evaluate_multiple_runs(lr, runs=settings.lr_test_runs):
     return avg
 
 if __name__ == "__main__":
-    evaluate_multiple_runs(settings.policy_lr)
+    evaluate_multiple_runs(settings.learning_rate)
 

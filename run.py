@@ -6,6 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import subprocess
+import socket
+import json
 from gridworld import GridWorld
 from analysis import analyze_episode
 from shared import initialize_policy, load_wall_stage_data, sample_wall_example, run_episode
@@ -14,29 +17,35 @@ import evaluate
 import settings
 import utils
 
+_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+_server = ("127.0.0.1", 9999)
+
 def train_policy():
     env, policy, optimizer = initialize_policy()
     stages = utils.stage_offsets(preliminary=True).keys()
     if settings.skip_to_wall:
-        policy.load_state_dict(torch.load('policy_model.pt'))
+        policy.load_state_dict(torch.load(settings.policy_model))
     else:
         for i in range(settings.epochs):
             print(f"Epoch {i + 1}")
             for stage in stages:
                 train_stage(env, policy, optimizer, stage)
-            torch.save(policy.state_dict(), 'policy_model.pt')
+            torch.save(policy.state_dict(), settings.policy_model)
     if settings.skip_curriculum:
-        policy.load_state_dict(torch.load('policy_model.pt'))
+        policy.load_state_dict(torch.load(settings.policy_model))
     else:
         for i in range(settings.epochs):
             if not os.path.exists('curriculum.npz') or settings.wall_curriculum_evaluation:
                 wall_curriculum.main()
-                evaluate.evaluate_and_cache_performance(model_path="policy_model.pt")
+                evaluate.evaluate_and_cache_performance(model_path=settings.policy_model)
             print(f"Epoch {i + 1}")
             train_curriculum(env, policy, optimizer)
-            torch.save(policy.state_dict(), "policy_model.pt")
-    train_free_roam_rollback(env, policy, optimizer)
-    torch.save(policy.state_dict(), "policy_model.pt")
+            torch.save(policy.state_dict(), settings.policy_model)
+    if settings.rollback:
+        train_free_roam_rollback(env, policy, optimizer)
+    else:
+        train_free_roam(env, policy, optimizer)
+    torch.save(policy.state_dict(), settings.policy_model)
 
 def train_stage(env, policy, optimizer, stage):
     max_steps = settings.max_steps
@@ -63,6 +72,7 @@ def train_stage(env, policy, optimizer, stage):
             success_rate = success_count / settings.step_interval
             avg_steps = step_sum / settings.step_interval
             print(f"Stage {stage}, episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
+            if settings.graph_app: publish(success_rate, avg_steps, stage, ep)
             if success_rate >= settings.threshold:
                 break
             success_count = 0
@@ -141,23 +151,19 @@ def train_free_roam(env, policy, optimizer):
             step_sum = 0
 
 def train_free_roam_rollback(env, policy, optimizer):
-    branch_size = settings.step_interval * 24
+    branch_size = settings.step_interval * 10
     baseline_rate = None
     ep = 1
+    tolerance = 0.05
+    alpha = 0.1
     while ep <= settings.roam_steps:
-        snapshot_policy = {k: v.clone() for k, v in policy.state_dict().items()}
-        snapshot_optimizer = copy.deepcopy(optimizer.state_dict())
+        snapshot = {k: v.clone() for k, v in policy.state_dict().items()}
         branch_success = 0
         branch_episodes = min(branch_size, settings.roam_steps - ep + 1)
         success_count, step_sum = 0, 0
         for _ in range(branch_episodes):
             env.reset()
-            if ep % settings.free_roam_log == 0 or settings.full_state_render:
-                render_subdir = os.path.join('images/free_roam', f'ep{ep}')
-                trajectory, reached_goal = run_episode(env, policy, settings.max_steps, render_prefix=f'freeroam_ep{ep}', render_dir=render_subdir)
-                analyze_episode(trajectory, reached_goal, ep, free_roam=True)
-            else:
-                trajectory, reached_goal = run_episode(env, policy, settings.max_steps)
+            trajectory, reached_goal = run_episode(env, policy, settings.max_steps)
             step_sum += len(trajectory)
             if reached_goal:
                 success_count += 1
@@ -177,14 +183,19 @@ def train_free_roam_rollback(env, policy, optimizer):
         if baseline_rate is None:
             baseline_rate = branch_rate
             print(f"Initial branch: branch_rate={branch_rate:.2f}")
-        elif branch_rate > baseline_rate:
-            old = baseline_rate
-            baseline_rate = branch_rate
-            print(f"Branch accepted: branch_rate={branch_rate:.2f} > last_rate={old:.2f}")
         else:
-            policy.load_state_dict(snapshot_policy)
-            optimizer.load_state_dict(snapshot_optimizer)
-            print(f"Branch rolled back: branch_rate={branch_rate:.2f} <= last_rate={baseline_rate:.2f}")
+            delta = branch_rate - baseline_rate
+            if delta > 0:
+                old = baseline_rate
+                baseline_rate = baseline_rate + alpha * delta
+                print(f"Branch improved: branch_rate={branch_rate:.2f}, new_baseline={baseline_rate:.2f}")
+            elif delta < -tolerance:
+                policy.load_state_dict(snapshot)
+                baseline_rate = baseline_rate + alpha * (branch_rate - baseline_rate)
+                print(f"Branch rolled back: branch_rate={branch_rate:.2f}, new_baseline={baseline_rate:.2f}")
+            else:
+                baseline_rate = baseline_rate + alpha * delta
+                print(f"Branch within tolerance: branch_rate={branch_rate:.2f}, new_baseline={baseline_rate:.2f}")
 
 def assign_rewards(trajectory, reached_goal):
     size = settings.grid_size
@@ -225,7 +236,18 @@ def compute_loss(trajectory, rewards):
         loss = loss - logp * r
     return loss
 
+def publish(success_rate, avg_steps, stage, episode):
+    msg = json.dumps({
+        "stage": stage,
+        "episode": episode,
+        "success_rate": success_rate,
+        "avg_steps": avg_steps
+    }).encode("utf-8")
+    _sock.sendto(msg, _server)
+    print(f"Published to {_server}: {msg}")
+
 if __name__ == "__main__":
+    if settings.graph_app: subprocess.Popen(["python3", "graph_app.py"])
     if os.path.isdir('images'):
         shutil.rmtree('images')
     train_policy()

@@ -21,7 +21,7 @@ def initialize_policy():
             if k.startswith("encoder.")}
         encoder.load_state_dict(encoder_state)
     policy = PolicyModel(encoder)
-    optimizer = torch.optim.Adam(policy.parameters(), lr=settings.policy_lr)
+    optimizer = torch.optim.Adam(policy.parameters(), lr=settings.learning_rate)
     return env, policy, optimizer
 
 def load_wall_stage_data(filename):

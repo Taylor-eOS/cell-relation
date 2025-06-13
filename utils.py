@@ -32,7 +32,8 @@ def stage_offsets(preliminary=True):
             if entry["offset"] not in ([1, 0], [0, 1])]
         filtered.sort(key=lambda p: p[1], reverse=True)
         sorted_offsets = [off for off, _ in filtered]
-        return {i+1: off for i, off in enumerate(sorted_offsets)}
+        sorted_list = {i+1: off for i, off in enumerate(sorted_offsets)}
+        return sorted_list
 
 def bresenham_line(x0, y0, x1, y1):
     points = []
@@ -91,11 +92,18 @@ def scored_offsets():
     return sorted(scores, key=lambda x: x[-1])
 
 if __name__ == "__main__":
+    s1 = stage_offsets()
+    s2 = stage_offsets(preliminary=False)
+    with open(f'offsets.txt', "w") as f:
+        f.write(f"Preliminary mode:\n")
+        f.write(f"{s1}\n")
+        f.write(f"Curriculum mode:\n")
+        f.write(f"{s2}\n")
     print("Preliminary mode:")
-    print(stage_offsets())
+    print(f"{s1}")
     print("Curriculum mode:")
-    print(stage_offsets(preliminary=False))
-    if settings.score_offsets:
+    print(f"{s2}")
+    if False:
         for stage, off, blockers, area, score in scored_offsets():
             print(f"Stage {stage:2d}: off={off} blockers={blockers:2d} area={area:2d} score={score:.3f}")
 

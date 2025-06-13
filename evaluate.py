@@ -6,7 +6,7 @@ from shared import initialize_policy, load_wall_stage_data, sample_wall_example,
 import settings
 import utils
 
-def evaluate_wall_curriculum(num_episodes, max_steps=settings.max_steps, model_path="policy_model.pt", render_samples=settings.evaluation_render_samples):
+def evaluate_wall_curriculum(num_episodes, max_steps=settings.max_steps, model_path=settings.policy_model, render_samples=settings.evaluation_render_samples):
     env, policy, _ = initialize_policy()
     policy.load_state_dict(torch.load(model_path))
     policy.eval()
@@ -46,7 +46,7 @@ def evaluate_wall_curriculum(num_episodes, max_steps=settings.max_steps, model_p
         print(f"Stage {stage}: {success_count}/{num_episodes}")
     return success_rates
 
-def evaluate_and_cache_performance(num_episodes=settings.evaluation_episodes, max_steps=settings.max_steps, model_path="policy_model.pt"):
+def evaluate_and_cache_performance(num_episodes=settings.evaluation_episodes, max_steps=settings.max_steps, model_path=settings.policy_model):
     print("Evaluating curriculum")
     success_rates = evaluate_wall_curriculum(num_episodes, max_steps, model_path)
     size = settings.grid_size

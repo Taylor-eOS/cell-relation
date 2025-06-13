@@ -47,7 +47,7 @@ def inference_loop():
     screen = pygame.display.set_mode((screen_width, screen_height))
     pygame.display.set_caption("GridWorld Inference")
     encoder = Encoder()
-    state_dict = torch.load("policy_model.pt")
+    state_dict = torch.load(settings.policy_model)
     encoder_state = {k.replace("encoder.", ""): v for k, v in state_dict.items() if k.startswith("encoder.")}
     encoder.load_state_dict(encoder_state)
     policy = PolicyModel(encoder)
