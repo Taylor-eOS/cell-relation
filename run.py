@@ -41,10 +41,11 @@ def train_policy():
             print(f"Epoch {i + 1}")
             train_curriculum(env, policy, optimizer)
             torch.save(policy.state_dict(), settings.policy_model)
-    if settings.rollback:
-        train_free_roam_rollback(env, policy, optimizer)
-    else:
-        train_free_roam(env, policy, optimizer)
+    if settings.free_roam:
+        if settings.rollback:
+            train_free_roam_rollback(env, policy, optimizer)
+        else:
+            train_free_roam(env, policy, optimizer)
     torch.save(policy.state_dict(), settings.policy_model)
 
 def train_stage(env, policy, optimizer, stage):
