@@ -61,7 +61,7 @@ class Encoder(nn.Module):
             ai, aj = (agent == 1).nonzero(as_tuple=True)
             ai, aj = ai.item(), aj.item()
             ni, nj = ai + dy, aj + dx
-            if 0 <= ni < H and 0 <= nj < W and walls[ni, nj] == 0:
+            if 0 <= ni < H and 0 <= nj < W:
                 new_agent[ni, nj] = 1
             else:
                 new_agent[ai, aj] = 1
