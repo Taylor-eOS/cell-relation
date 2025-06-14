@@ -3,6 +3,7 @@ import random
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions import Categorical
 from gridworld import GridWorld
 from model import Encoder, PolicyModel
 from analysis import render_grid
@@ -82,8 +83,10 @@ def run_episode(env, policy, max_steps, render_prefix=None, render_dir=None):
     return trajectory, reached_goal
 
 def sample_action(logits):
-    probs = F.softmax(logits, dim=-1)
-    dist = torch.distributions.Categorical(probs)
-    action_tensor = dist.sample()
-    return action_tensor.item(), dist.log_prob(action_tensor)
+    logits = logits.view(-1)
+    probs = F.softmax(logits, dim=0)
+    dist = Categorical(probs)
+    action = dist.sample()
+    logp   = dist.log_prob(action)
+    return int(action), logp
 

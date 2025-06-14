@@ -13,7 +13,7 @@ class WorldModel(nn.Module):
         self.encoder = encoder
         self.action_embed = nn.Linear(4, 8)
         num_cells = settings.grid_size * settings.grid_size
-        self.head = nn.Linear(40 + 8, num_cells)
+        self.head = nn.Linear(64 + 8, num_cells)
 
     def forward(self, obs, action):
         hvec = self.encoder(obs)

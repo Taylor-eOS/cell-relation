@@ -9,6 +9,7 @@ import numpy as np
 import subprocess
 import socket
 import json
+from scipy.stats import linregress
 from gridworld import GridWorld
 from analysis import analyze_episode
 from shared import initialize_policy, load_wall_stage_data, sample_wall_example, run_episode
@@ -52,10 +53,12 @@ def train_stage(env, policy, optimizer, stage):
     max_steps = settings.max_steps
     success_count = 0
     step_sum = 0
+    loss_history = []
+    grad_norms = []
     for ep in range(1, settings.training_steps + 1):
         env.sample_stage(stage, preliminary=True)
         if ep == 1 or settings.full_state_render:
-            trajectory, reached_goal = run_episode(env, policy, max_steps, render_prefix=f'stage{stage}_ep{ep}', render_dir=f'images')
+            trajectory, reached_goal = run_episode(env, policy, max_steps, render_prefix=f'stage{stage}_ep{ep}', render_dir='images')
             analyze_episode(trajectory, reached_goal, ep, stage=stage)
         else:
             trajectory, reached_goal = run_episode(env, policy, max_steps)
@@ -68,16 +71,32 @@ def train_stage(env, policy, optimizer, stage):
         loss = compute_loss(trajectory, rewards)
         optimizer.zero_grad()
         loss.backward()
+        grad_norm = torch.nn.utils.clip_grad_norm_(policy.parameters(), float('inf'))
+        grad_norms.append(grad_norm)
+        loss_history.append(loss.item())
         optimizer.step()
         if ep % settings.step_interval == 0:
             success_rate = success_count / settings.step_interval
             avg_steps = step_sum / settings.step_interval
+            losses = np.array(loss_history)
+            grads = np.array(grad_norms)
+            steps = np.arange(len(losses))
+            loss_slope = linregress(steps, losses).slope
+            early_loss = losses[:len(losses)//2]
+            late_loss = losses[len(losses)//2:]
+            loss_drop = early_loss.mean() - late_loss.mean()
+            grad_cv = grads.std() / (grads.mean() + 1e-8)
+            exploding = np.any(np.isnan(grads)) or np.any(grads > 1000)
             print(f"Stage {stage}, episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
+            with open(f'evaluation_data.txt', 'a') as f:
+                f.write(f"Stage {stage}: loss drop: {loss_drop:.4f}, loss slope: {loss_slope:.6f}, grad cv: {grad_cv:.3f}, exploding: {exploding}\n")
             if settings.graph_app: publish(success_rate, avg_steps, stage, ep)
             if success_rate >= settings.threshold:
                 break
             success_count = 0
             step_sum = 0
+            loss_history = []
+            grad_norms = []
     print(f"Stage {stage + 1}")
 
 def train_curriculum(env, policy, optimizer):
@@ -245,10 +264,12 @@ def publish(success_rate, avg_steps, stage, episode):
         "avg_steps": avg_steps
     }).encode("utf-8")
     _sock.sendto(msg, _server)
-    print(f"Published to {_server}: {msg}")
 
 if __name__ == "__main__":
-    if settings.graph_app: subprocess.Popen(["python3", "graph_app.py"])
+    if settings.graph_app:
+        with open('evaluation_data.txt', 'w') as f:
+            f.write('')
+        subprocess.Popen(["python3", "graph_app.py"])
     if os.path.isdir('images'):
         shutil.rmtree('images')
     train_policy()
