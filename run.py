@@ -22,7 +22,7 @@ _sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 _server = ("127.0.0.1", 9999)
 
 def train_policy():
-    env, policy, optimizer = initialize_policy()
+    env, policy, optimizer, scheduler = initialize_policy()
     stages = utils.stage_offsets(preliminary=True).keys()
     if settings.skip_to_wall:
         policy.load_state_dict(torch.load(settings.policy_model))
@@ -30,7 +30,7 @@ def train_policy():
         for i in range(settings.epochs):
             print(f"Epoch {i + 1}")
             for stage in stages:
-                train_stage(env, policy, optimizer, stage)
+                train_stage(env, policy, optimizer, scheduler, stage)
             torch.save(policy.state_dict(), settings.policy_model)
     if settings.skip_curriculum:
         policy.load_state_dict(torch.load(settings.policy_model))
@@ -49,7 +49,7 @@ def train_policy():
             train_free_roam(env, policy, optimizer)
     torch.save(policy.state_dict(), settings.policy_model)
 
-def train_stage(env, policy, optimizer, stage):
+def train_stage(env, policy, optimizer, scheduler, stage):
     max_steps = settings.max_steps
     success_count = 0
     step_sum = 0
@@ -75,20 +75,20 @@ def train_stage(env, policy, optimizer, stage):
         grad_norms.append(grad_norm)
         loss_history.append(loss.item())
         optimizer.step()
+        scheduler.step()
         if ep % settings.step_interval == 0:
             success_rate = success_count / settings.step_interval
             avg_steps = step_sum / settings.step_interval
             losses = np.array(loss_history)
             grads = np.array(grad_norms)
-            steps = np.arange(len(losses))
-            loss_slope = linregress(steps, losses).slope
+            loss_slope = linregress(np.arange(len(losses)), losses).slope
             early_loss = losses[:len(losses)//2]
             late_loss = losses[len(losses)//2:]
             loss_drop = early_loss.mean() - late_loss.mean()
             grad_cv = grads.std() / (grads.mean() + 1e-8)
             exploding = np.any(np.isnan(grads)) or np.any(grads > 1000)
             print(f"Stage {stage}, episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
-            with open(f'evaluation_data.txt', 'a') as f:
+            with open('evaluation_data.txt','a') as f:
                 f.write(f"Stage {stage}: loss drop: {loss_drop:.4f}, loss slope: {loss_slope:.6f}, grad cv: {grad_cv:.3f}, exploding: {exploding}\n")
             if settings.graph_app: publish(success_rate, avg_steps, stage, ep)
             if success_rate >= settings.threshold:

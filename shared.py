@@ -23,7 +23,10 @@ def initialize_policy():
         encoder.load_state_dict(encoder_state)
     policy = PolicyModel(encoder)
     optimizer = torch.optim.Adam(policy.parameters(), lr=settings.learning_rate)
-    return env, policy, optimizer
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda ep: 1 - ep / settings.training_steps)
+    return env, policy, optimizer, scheduler
 
 def load_wall_stage_data(filename):
     data = np.load(filename)

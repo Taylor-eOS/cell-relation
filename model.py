@@ -1,66 +1,28 @@
 import torch
 import torch.nn as nn
+import numpy as np
 import settings
 
 class Encoder(nn.Module):
     def __init__(self):
         super().__init__()
-        C = 16
         size = settings.grid_size
-        num_cells = size * size
-        self.cell_feature_mlp = nn.Sequential(
-            nn.Linear(3, 64),
-            nn.GELU(),
-            nn.Linear(64, 128),
-            nn.GELU(),
-            nn.Linear(128, 64),
-            nn.GELU(),
-            nn.Linear(64, C))
-        self.abs_pos_embed  = nn.Embedding(num_cells, 4)
-        self.rel_pos_embed  = nn.Linear(2, 4)
-        self.angle_embed    = nn.Linear(2, 4)
-        self.neighbor_proj  = nn.Linear(C, 4)
-        d_model = C + 4 + 4 + 4 + 4
-        enc_layer = nn.TransformerEncoderLayer(
-            d_model=d_model,
-            nhead=settings.attention_heads,
-            batch_first=True)
-        self.transformer = nn.TransformerEncoder(
-            enc_layer,
-            num_layers=settings.transformer_layers)
-        coords = torch.stack(torch.meshgrid(
-            torch.arange(size), torch.arange(size),
-            indexing='ij'), dim=-1).view(num_cells, 2).float()
-        coords = coords / (size - 1) * 2 - 1
-        ri, ci = coords[:, 0], coords[:, 1]
-        rj, cj = ri[None, :], ci[None, :]
-        rel_full = torch.stack([ri[:, None] - rj, ci[:, None] - cj], dim=-1)
-        angles = torch.atan2(rel_full[..., 1], rel_full[..., 0])
-        angles_sin_cos = torch.stack([torch.sin(angles), torch.cos(angles)], dim=-1)
-        neighbors = []
-        for idx in range(num_cells):
-            i, j = divmod(idx, size)
-            nbrs = []
-            for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                ni, nj = i + di, j + dj
-                nbrs.append(ni * size + nj if 0 <= ni < size and 0 <= nj < size else idx)
-            neighbors.append(nbrs)
-        self.register_buffer('rel_full', rel_full)
-        self.register_buffer('angles_sin_cos', angles_sin_cos)
-        self.register_buffer('neighbor_idx', torch.tensor(neighbors, dtype=torch.long))
-        self.num_cells = num_cells
+        C = 64
+        self.size = size
+        feat_dim = 55
+        self.feat_mlp = nn.Sequential(nn.Linear(feat_dim, 128), nn.GELU(), nn.Linear(128, C))
+        enc_layer = nn.TransformerEncoderLayer(d_model=C, nhead=settings.attention_heads, batch_first=True)
+        self.transformer = nn.TransformerEncoder(enc_layer, num_layers=settings.transformer_layers)
 
     def simulate_hypotheticals(self, obs):
-        H, W = obs.shape[1], obs.shape[2]
-        agent = obs[0]
-        walls = obs[2]
-        goal  = obs[1]
+        H, W = self.size, self.size
+        agent, goal, walls = obs[0], obs[1], obs[2]
         hypos = []
+        ai, aj = (agent == 1).nonzero(as_tuple=True)
+        ai, aj = ai.item(), aj.item()
         for dy, dx in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            new_agent = torch.zeros_like(agent)
-            ai, aj = (agent == 1).nonzero(as_tuple=True)
-            ai, aj = ai.item(), aj.item()
             ni, nj = ai + dy, aj + dx
+            new_agent = torch.zeros_like(agent)
             if 0 <= ni < H and 0 <= nj < W:
                 new_agent[ni, nj] = 1
             else:
@@ -68,41 +30,67 @@ class Encoder(nn.Module):
             hypos.append(torch.stack([new_agent, goal, walls], dim=0))
         return torch.stack(hypos, dim=0)
 
-    def forward(self, obs):
-        device = self.rel_full.device
-        hypos = self.simulate_hypotheticals(torch.from_numpy(obs).to(device))
-        B = hypos.size(0)
-        flat = hypos.view(B, 3, self.num_cells)
-        cell_emb = self.cell_feature_mlp(flat.permute(0, 2, 1))
-        indices = torch.arange(self.num_cells, device=device)
-        abs_embs = self.abs_pos_embed(indices)
-        tokens = []
-        for b in range(B):
-            agent_idx = int(flat[b, 0].argmax())
-            rel_offsets = self.rel_full[agent_idx]
-            rel_embs    = self.rel_pos_embed(rel_offsets)
-            angle_feats = self.angles_sin_cos[agent_idx]
-            angle_embs  = self.angle_embed(angle_feats)
-            nbrs        = self.neighbor_idx[indices]
-            nbr_embs    = cell_emb[b, nbrs]
-            nbr_avg     = nbr_embs.mean(dim=1)
-            nbr_feats   = self.neighbor_proj(nbr_avg)
-            ce_all = cell_emb[b]
-            token  = torch.cat([ce_all, abs_embs, rel_embs,
-                                angle_embs, nbr_feats], dim=-1)
-            tokens.append(token)
-        tokens = torch.stack(tokens, dim=0)
-        t_out  = self.transformer(tokens)
-        return t_out.mean(dim=1)
+    def extract_features(self, state):
+        agent_map, goal_map, wall_map = state
+        H = W = self.size
+        device = state.device
+        ai, aj = (agent_map == 1).nonzero(as_tuple=True)
+        gi, gj = (goal_map == 1).nonzero(as_tuple=True)
+        ai, aj = ai.item(), aj.item()
+        gi, gj = gi.item(), gj.item()
+        ain = torch.tensor(2 * ai / (H - 1) - 1, device=device)
+        ajn = torch.tensor(2 * aj / (W - 1) - 1, device=device)
+        gin = torch.tensor(2 * gi / (H - 1) - 1, device=device)
+        gjn = torch.tensor(2 * gj / (W - 1) - 1, device=device)
+        dxg, dyg = gjn - ajn, gin - ain
+        eps = torch.tensor(1e-8, device=device)
+        dg = torch.sqrt(dxg * dxg + dyg * dyg + eps)
+        sing, cosg = dyg / dg, dxg / dg
+        goal_feats = torch.stack([ain, ajn, gin, gjn, dxg, dyg, dg, sing, cosg])
+        wall_locs = (wall_map == 1).nonzero(as_tuple=False).float()
+        agent_wall_feats, goal_wall_feats = [], []
+        for i in range(min(3, wall_locs.size(0))):
+            wi, wj = wall_locs[i]
+            win = 2 * wi / (H - 1) - 1
+            wjn = 2 * wj / (W - 1) - 1
+            dxaw, dyaw = wjn - ajn, win - ain
+            daw = torch.sqrt(dxaw * dxaw + dyaw * dyaw + eps)
+            sing_aw, cosg_aw = dyaw / daw, dxaw / daw
+            agent_wall_feats += [win, wjn, dxaw, dyaw, daw, sing_aw, cosg_aw]
+            dxgw, dygw = wjn - gjn, win - gin
+            dgw = torch.sqrt(dxgw * dxgw + dygw * dygw + eps)
+            sing_gw, cosg_gw = dygw / dgw, dxgw / dgw
+            goal_wall_feats += [win, wjn, dxgw, dygw, dgw, sing_gw, cosg_gw]
+        pad = lambda lst, n: lst + [0.] * (n - len(lst))
+        agent_wall_feats = torch.tensor(pad(agent_wall_feats, 21), device=device)
+        goal_wall_feats = torch.tensor(pad(goal_wall_feats, 21), device=device)
+        walls = wall_map
+        neighbors = torch.tensor([
+            walls[ai - 1, aj] if ai > 0 else 1,
+            walls[ai + 1, aj] if ai < H - 1 else 1,
+            walls[ai, aj - 1] if aj > 0 else 1,
+            walls[ai, aj + 1] if aj < W - 1 else 1
+        ], device=device).float()
+        return torch.cat([goal_feats, agent_wall_feats, goal_wall_feats, neighbors])
+
+    def forward(self, obs_np):
+        device = next(self.parameters()).device
+        obs = torch.from_numpy(obs_np).to(device)
+        current_tok = self.feat_mlp(self.extract_features(obs))
+        hypos = self.simulate_hypotheticals(obs)
+        hypo_toks = [self.feat_mlp(self.extract_features(h)) for h in hypos]
+        tokens = torch.stack([current_tok] + hypo_toks, dim=0).unsqueeze(0)
+        return self.transformer(tokens)
 
 class PolicyModel(nn.Module):
     def __init__(self, encoder):
         super().__init__()
         self.encoder = encoder
-        self.head = nn.Linear(32, 4)
-
+        self.head = nn.Linear(64, 1)
+        
     def forward(self, obs):
-        hvec = self.encoder(obs)
-        logits = self.head(hvec.unsqueeze(0))
-        return logits
+        token_vecs = self.encoder(obs)
+        action_vecs = token_vecs[:, 1:, :]
+        logits = self.head(action_vecs)
+        return logits.squeeze(-1)
 
