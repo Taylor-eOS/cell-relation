@@ -7,7 +7,7 @@ import settings
 import utils
 
 def evaluate_wall_curriculum(num_episodes, max_steps=settings.max_steps, model_path=settings.policy_model, render_samples=settings.evaluation_render_samples):
-    env, policy, _ = initialize_policy()
+    env, policy, _, _ = initialize_policy()
     policy.load_state_dict(torch.load(model_path))
     policy.eval()
     stage_data, stages = load_wall_stage_data("curriculum.npz")
@@ -34,8 +34,7 @@ def evaluate_wall_curriculum(num_episodes, max_steps=settings.max_steps, model_p
             if rendered_count < render_samples:
                 if settings.create_grid_log:
                     print_grid(env.agent_pos, env.wall_positions, env.goal_pos)
-                trajectory, reached_goal = run_episode(env, policy, max_steps, 
-                    render_prefix=f'wall_stage{stage}_ep{ep+1}', render_dir=f'images')
+                trajectory, reached_goal = run_episode(env, policy, max_steps, render_prefix=f'wall_stage{stage}_ep{ep+1}', render_dir='images')
                 rendered_count += 1
             else:
                 _, reached_goal = run_episode(env, policy, max_steps)
