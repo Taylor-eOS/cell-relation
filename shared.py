@@ -24,7 +24,7 @@ def initialize_policy():
     optimizer = torch.optim.Adam(policy.parameters(), lr=settings.learning_rate)
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
-        lr_lambda=lambda ep: 0.5 * (1 + math.cos(math.pi * ep / settings.training_steps)))
+        lr_lambda=lambda ep: 1.0)
     return env, policy, optimizer, scheduler
 
 def load_wall_stage_data(filename):
