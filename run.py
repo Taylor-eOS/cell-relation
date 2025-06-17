@@ -29,6 +29,7 @@ def train_policy():
     else:
         for i in range(settings.epochs):
             print(f"Epoch {i + 1}")
+            set_lr(optimizer, settings.learning_rate)
             for stage in stages:
                 train_stage(env, policy, optimizer, scheduler, stage)
             torch.save(policy.state_dict(), settings.policy_model)
@@ -40,9 +41,11 @@ def train_policy():
                 wall_curriculum.main()
                 evaluate.evaluate_and_cache_performance(model_path=settings.policy_model)
             print(f"Epoch {i + 1}")
+            set_lr(optimizer, settings.learning_rate * 1.5)
             train_curriculum(env, policy, optimizer)
             torch.save(policy.state_dict(), settings.policy_model)
     if settings.free_roam:
+        set_lr(optimizer, settings.learning_rate)
         if settings.rollback:
             train_free_roam_rollback(env, policy, optimizer)
         else:
@@ -75,7 +78,7 @@ def train_stage(env, policy, optimizer, scheduler, stage):
         grad_norms.append(grad_norm)
         loss_history.append(loss.item())
         optimizer.step()
-        scheduler.step()
+        if False: scheduler.step()
         if ep % settings.step_interval == 0:
             success_rate = success_count / settings.step_interval
             avg_steps = step_sum / settings.step_interval
@@ -138,6 +141,7 @@ def train_curriculum(env, policy, optimizer):
                 success_rate = success_count / settings.step_interval
                 avg_steps = step_sum / settings.step_interval
                 print(f"Wall stage {stage}, episode {ep}, success rate: {success_rate:.2f}, avg steps: {avg_steps:.2f}")
+                if settings.graph_app: publish(success_rate, avg_steps, stage, ep)
                 if success_rate >= settings.threshold:
                     break
                 success_count = 0
@@ -264,6 +268,10 @@ def publish(success_rate, avg_steps, stage, episode):
         "avg_steps": avg_steps
     }).encode("utf-8")
     _sock.sendto(msg, _server)
+
+def set_lr(optimizer, lr):
+    for g in optimizer.param_groups:
+        g['lr'] = lr
 
 if __name__ == "__main__":
     if settings.graph_app:
